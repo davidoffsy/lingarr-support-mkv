@@ -5,7 +5,8 @@ namespace Lingarr.Server.Interfaces.Services;
 
 /// <summary>
 /// Probes MKV containers for extractable text subtitle tracks and copies them to sidecar files.
-/// Image-based tracks and WebVTT are ignored in phase 1.
+/// Image-based tracks cannot be extracted, but their language still counts as already present
+/// for automatic translation.
 /// </summary>
 public interface IEmbeddedSubtitleService
 {

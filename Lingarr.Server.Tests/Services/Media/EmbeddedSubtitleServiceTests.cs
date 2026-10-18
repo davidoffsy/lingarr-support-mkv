@@ -268,6 +268,35 @@ public class EmbeddedSubtitleServiceTests : IDisposable
         Assert.Equal(4, skipped.Index);
         Assert.Equal("hdmv_pgs_subtitle", skipped.CodecName);
         Assert.Equal(EmbeddedSubtitleProbeResult.SkipReasonImage, skipped.Reason);
+        Assert.Equal("en", skipped.Language);
+        Assert.False(skipped.IsForced);
+    }
+
+    [Fact]
+    public async Task ProbeDetailedAsync_MapsSkippedPgsLanguageAndForced()
+    {
+        SetupProbe(Succeed("""
+            {
+              "streams": [
+                {
+                  "index": 4,
+                  "codec_name": "hdmv_pgs_subtitle",
+                  "disposition": { "default": 0, "forced": 1, "hearing_impaired": 0 },
+                  "tags": { "language": "chi" }
+                }
+              ]
+            }
+            """));
+
+        var result = await _service.ProbeDetailedAsync(_mkvPath);
+
+        Assert.True(result.Found);
+        Assert.Empty(result.Tracks);
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Equal("zh", skipped.Language);
+        Assert.Equal("forced", skipped.Caption);
+        Assert.True(skipped.IsForced);
+        Assert.Equal(EmbeddedSubtitleProbeResult.SkipReasonImage, skipped.Reason);
     }
 
     [Fact]

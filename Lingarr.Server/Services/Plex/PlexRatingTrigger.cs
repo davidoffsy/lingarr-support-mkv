@@ -81,7 +81,8 @@ public class PlexRatingTrigger : IPlexRatingTrigger
 
         var sidecars = await _subtitleService.GetSubtitles(media.Path, media.FileName);
         var mkvPath = _mediaFileLocator.FindMkv(media);
-        var tracks = await ProbeTracksAsync(mkvPath, media.FileName, cancellationToken);
+        var probe = await ProbeAsync(mkvPath, media.FileName, cancellationToken);
+        var tracks = probe?.Tracks ?? [];
         var candidates = PlexSubtitleCandidateMerger.Merge(sidecars, tracks, mkvPath);
 
         var sourceLanguages = SourceLanguagePicker.CodesInOrder(
@@ -120,9 +121,7 @@ public class PlexRatingTrigger : IPlexRatingTrigger
             return;
         }
 
-        var sidecarLanguages = sidecars
-            .Select(sidecar => sidecar.Language)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var presentLanguages = TargetSubtitlePresence.FullLanguages(sidecars, probe);
 
         var existingTargets = await _dbContext.TranslationRequests
             .Where(request =>
@@ -141,10 +140,10 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         var enqueued = 0;
         foreach (var targetLanguage in targetLanguages)
         {
-            if (sidecarLanguages.Contains(targetLanguage))
+            if (presentLanguages.Contains(targetLanguage))
             {
                 _logger.LogInformation(
-                    "Plex rating trigger skipped target {TargetLanguage}: sidecar already exists for {FileName}",
+                    "Plex rating trigger skipped target {TargetLanguage}: already present for {FileName}",
                     targetLanguage,
                     media.FileName);
                 continue;
@@ -268,19 +267,19 @@ public class PlexRatingTrigger : IPlexRatingTrigger
             _ => null
         };
 
-    private async Task<IReadOnlyList<EmbeddedSubtitleTrack>> ProbeTracksAsync(
+    private async Task<EmbeddedSubtitleProbeResult?> ProbeAsync(
         string? mkvPath,
         string? fileName,
         CancellationToken cancellationToken)
     {
         if (mkvPath == null)
         {
-            return [];
+            return null;
         }
 
         try
         {
-            return await _embeddedSubtitleService.ProbeAsync(mkvPath, cancellationToken);
+            return await _embeddedSubtitleService.ProbeDetailedAsync(mkvPath, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -292,7 +291,7 @@ public class PlexRatingTrigger : IPlexRatingTrigger
                 ex,
                 "Failed to probe embedded subtitles for Plex media {FileName}; continuing with sidecars only.",
                 fileName);
-            return [];
+            return null;
         }
     }
 

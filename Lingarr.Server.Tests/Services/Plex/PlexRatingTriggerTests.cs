@@ -64,8 +64,8 @@ public class PlexRatingTriggerTests : IDisposable
         _locator.Setup(l => l.FindMkv(It.IsAny<IMedia>())).Returns(MkvPath);
         _subtitles.Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(new List<Subtitles>());
-        _embedded.Setup(s => s.ProbeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<EmbeddedSubtitleTrack>());
+        _embedded.Setup(s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EmbeddedSubtitleProbeResult.Success([], []));
         _requests.Setup(s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()))
             .ReturnsAsync(1);
         _importer.Setup(i => i.ListAsync(
@@ -94,8 +94,7 @@ public class PlexRatingTriggerTests : IDisposable
     public async Task Enqueue_Sidecar_CreatesRequestWithRealPathAndNeverExtracts()
     {
         SetupSidecar(SidecarPath, "en");
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { EnglishTrack(2) });
+        SetupEmbedded(EnglishTrack(2));
 
         await _trigger.EnqueueAsync(ResolvedMovie());
 
@@ -115,8 +114,7 @@ public class PlexRatingTriggerTests : IDisposable
     [Fact]
     public async Task Enqueue_OnlyEmbedded_CreatesRequestWithPlaceholder()
     {
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { EnglishTrack(2) });
+        SetupEmbedded(EnglishTrack(2));
 
         await _trigger.EnqueueAsync(ResolvedMovie());
 
@@ -144,7 +142,7 @@ public class PlexRatingTriggerTests : IDisposable
         await _trigger.EnqueueAsync(ResolvedMovie());
 
         _locator.Verify(l => l.FindMkv(It.IsAny<IMedia>()), Times.Once);
-        _embedded.Verify(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()), Times.Once);
+        _embedded.Verify(s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()), Times.Once);
         VerifyNeverExtracts();
     }
 
@@ -186,7 +184,7 @@ public class PlexRatingTriggerTests : IDisposable
     public async Task Enqueue_ProbeThrows_StillEnqueuesFromSidecar()
     {
         SetupSidecar(SidecarPath, "en");
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
+        _embedded.Setup(s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("ffprobe failed"));
 
         await _trigger.EnqueueAsync(ResolvedMovie());
@@ -200,17 +198,13 @@ public class PlexRatingTriggerTests : IDisposable
     [Fact]
     public async Task Enqueue_UniqueUndeterminedEmbedded_CreatesRequestWithUnknownSource()
     {
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
-            {
-                new EmbeddedSubtitleTrack
-                {
-                    Index = 2,
-                    CodecName = "subrip",
-                    Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
-                    Extension = ".srt"
-                }
-            });
+        SetupEmbedded(new EmbeddedSubtitleTrack
+        {
+            Index = 2,
+            CodecName = "subrip",
+            Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
+            Extension = ".srt"
+        });
 
         await _trigger.EnqueueAsync(ResolvedMovie());
 
@@ -228,23 +222,20 @@ public class PlexRatingTriggerTests : IDisposable
     [Fact]
     public async Task Enqueue_MultipleUndeterminedEmbedded_DoesNotCreateRequest()
     {
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
+        SetupEmbedded(
+            new EmbeddedSubtitleTrack
             {
-                new EmbeddedSubtitleTrack
-                {
-                    Index = 2,
-                    CodecName = "subrip",
-                    Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
-                    Extension = ".srt"
-                },
-                new EmbeddedSubtitleTrack
-                {
-                    Index = 3,
-                    CodecName = "subrip",
-                    Language = EmbeddedSubtitleTrack.UnknownLanguage,
-                    Extension = ".srt"
-                }
+                Index = 2,
+                CodecName = "subrip",
+                Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
+                Extension = ".srt"
+            },
+            new EmbeddedSubtitleTrack
+            {
+                Index = 3,
+                CodecName = "subrip",
+                Language = EmbeddedSubtitleTrack.UnknownLanguage,
+                Extension = ".srt"
             });
 
         await _trigger.EnqueueAsync(ResolvedMovie());
@@ -313,17 +304,13 @@ public class PlexRatingTriggerTests : IDisposable
     public async Task Enqueue_UniqueUndeterminedEmbedded_PrefersTaggedPlexStream()
     {
         const string imported = "/movies/Foo/Foo.en.srt";
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
-            {
-                new EmbeddedSubtitleTrack
-                {
-                    Index = 2,
-                    CodecName = "subrip",
-                    Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
-                    Extension = ".srt"
-                }
-            });
+        SetupEmbedded(new EmbeddedSubtitleTrack
+        {
+            Index = 2,
+            CodecName = "subrip",
+            Language = EmbeddedSubtitleTrack.UndeterminedLanguage,
+            Extension = ".srt"
+        });
         SetupPlexImport("/library/streams/12345", imported);
 
         await _trigger.EnqueueAsync(ResolvedMovie());
@@ -449,19 +436,56 @@ public class PlexRatingTriggerTests : IDisposable
     }
 
     [Fact]
-    public async Task Enqueue_EmbeddedTargetTrack_DoesNotCountAsDone()
+    public async Task Enqueue_EmbeddedTargetTrack_CountsAsDone()
     {
-        _embedded.Setup(s => s.ProbeAsync(MkvPath, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
+        SetupEmbedded(
+            EnglishTrack(2),
+            new EmbeddedSubtitleTrack
             {
-                EnglishTrack(2),
-                new EmbeddedSubtitleTrack
+                Index = 3,
+                CodecName = "subrip",
+                Language = "zh",
+                Extension = ".srt"
+            });
+
+        await _trigger.EnqueueAsync(ResolvedMovie());
+
+        _requests.Verify(s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Enqueue_EmbeddedPgsTarget_CountsAsDone()
+    {
+        SetupEmbedded(
+            [EnglishTrack(2)],
+            [
+                new SkippedEmbeddedSubtitleTrack
                 {
-                    Index = 3,
-                    CodecName = "subrip",
-                    Language = "zh",
-                    Extension = ".srt"
+                    Index = 4,
+                    CodecName = "hdmv_pgs_subtitle",
+                    Reason = EmbeddedSubtitleProbeResult.SkipReasonImage,
+                    Language = "zh"
                 }
+            ]);
+
+        await _trigger.EnqueueAsync(ResolvedMovie());
+
+        _requests.Verify(s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Enqueue_EmbeddedForcedTargetOnly_StillCreatesRequest()
+    {
+        SetupEmbedded(
+            EnglishTrack(2),
+            new EmbeddedSubtitleTrack
+            {
+                Index = 3,
+                CodecName = "subrip",
+                Language = "zh",
+                Caption = "forced",
+                Extension = ".srt",
+                IsForced = true
             });
 
         await _trigger.EnqueueAsync(ResolvedMovie());
@@ -519,6 +543,17 @@ public class PlexRatingTriggerTests : IDisposable
         Caption = caption,
         Format = System.IO.Path.GetExtension(path)
     };
+
+    private void SetupEmbedded(params EmbeddedSubtitleTrack[] tracks) =>
+        SetupEmbedded(tracks, []);
+
+    private void SetupEmbedded(
+        IReadOnlyList<EmbeddedSubtitleTrack> tracks,
+        IReadOnlyList<SkippedEmbeddedSubtitleTrack> skipped)
+    {
+        _embedded.Setup(s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EmbeddedSubtitleProbeResult.Success(tracks, skipped));
+    }
 
     private static EmbeddedSubtitleTrack EnglishTrack(int index) => new()
     {

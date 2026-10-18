@@ -58,7 +58,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
         }
         
         var subtitles = await _subtitleService.GetSubtitles(media.Path, media.FileName);
-        var mkvPath = await TryCollectEmbeddedSubtitles(media, subtitles);
+        var (mkvPath, probe) = await CollectEmbeddedSubtitles(media, subtitles);
 
         if (!subtitles.Any())
         {
@@ -71,41 +71,50 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
 
         _media = media;
         _mediaType = mediaType;
-        _hash = CreateHash(subtitles, sourceLanguages, targetLanguages, ignoreCaptions);
+        var presentLanguages = TargetSubtitlePresence.FullLanguages(subtitles, probe);
+        _hash = CreateHash(subtitles, sourceLanguages, targetLanguages, ignoreCaptions, presentLanguages);
         if (!string.IsNullOrEmpty(media.MediaHash) && media.MediaHash == _hash)
         {
             return false;
         }
         
         _logger.LogInformation("Initiating subtitle processing.");
-        return await ProcessSubtitles(subtitles, sourceLanguages, targetLanguages, ignoreCaptions, mkvPath);
+        return await ProcessSubtitles(
+            subtitles,
+            sourceLanguages,
+            targetLanguages,
+            ignoreCaptions,
+            mkvPath,
+            presentLanguages);
     }
 
     /// <summary>
-    /// When scanning is enabled, probes this media's MKV and appends text tracks that
-    /// do not already have a matching sidecar (same language + caption).
+    /// Always probes the MKV so image and text tracks can mark a target language as
+    /// already present. Extractable text tracks are merged as translation sources
+    /// only when scanning is enabled.
     /// </summary>
-    private async Task<string?> TryCollectEmbeddedSubtitles(IMedia media, List<Subtitles> subtitles)
+    private async Task<(string? MkvPath, EmbeddedSubtitleProbeResult? Probe)> CollectEmbeddedSubtitles(
+        IMedia media,
+        List<Subtitles> subtitles)
     {
-        var scanEmbedded = await _settingService.GetSetting(SettingKeys.Translation.ScanEmbeddedSubtitles) == "true";
-        if (!scanEmbedded)
-        {
-            return null;
-        }
-
         var mkvPath = _mediaFileLocator.FindMkv(media);
         if (mkvPath == null)
         {
-            return null;
+            return (null, null);
         }
 
         try
         {
-            var tracks = await _embeddedSubtitleService.ProbeAsync(mkvPath);
-            var merged = EmbeddedSubtitleMerger.Merge(subtitles, tracks, mkvPath);
-            subtitles.Clear();
-            subtitles.AddRange(merged);
-            return mkvPath;
+            var probe = await _embeddedSubtitleService.ProbeDetailedAsync(mkvPath);
+            var scanEmbedded = await _settingService.GetSetting(SettingKeys.Translation.ScanEmbeddedSubtitles) == "true";
+            if (scanEmbedded && probe is { Found: true })
+            {
+                var merged = EmbeddedSubtitleMerger.Merge(subtitles, probe.Tracks, mkvPath);
+                subtitles.Clear();
+                subtitles.AddRange(merged);
+            }
+
+            return (mkvPath, probe);
         }
         catch (OperationCanceledException)
         {
@@ -117,7 +126,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
                 ex,
                 "Failed to probe embedded subtitles for {FileName}; continuing with sidecars only.",
                 media.FileName);
-            return mkvPath;
+            return (mkvPath, null);
         }
     }
 
@@ -129,13 +138,15 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
     /// <param name="targetLanguages">The target languages.</param>
     /// <param name="ignoreCaptions">The ignore captions setting.</param>
     /// <param name="mkvPath">MKV path when embedded tracks were probed; otherwise null.</param>
+    /// <param name="presentLanguages">Full (non-forced) languages already present on disk or in the MKV.</param>
     /// <returns>True if new translation requests were created, false otherwise.</returns>
     private async Task<bool> ProcessSubtitles(
         List<Subtitles> subtitles,
         IReadOnlyList<string> sourceLanguages,
         IReadOnlyList<string> targetLanguages,
         string ignoreCaptions,
-        string? mkvPath)
+        string? mkvPath,
+        ISet<string> presentLanguages)
     {
         if (sourceLanguages.Count == 0 || targetLanguages.Count == 0)
         {
@@ -163,23 +174,15 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
             return false;
         }
 
-        var languagesToTranslate = targetLanguages.Except(selected.AvailableLanguages).ToList();
-        if (ignoreCaptions == "true")
+        var languagesToTranslate = targetLanguages
+            .Where(language => !presentLanguages.Contains(language))
+            .ToList();
+        if (languagesToTranslate.Count != targetLanguages.Count)
         {
-            var targetLanguagesWithCaptions = subtitles
-                .Where(s => targetLanguages.Contains(s.Language) && !string.IsNullOrEmpty(s.Caption))
-                .Select(s => s.Language)
-                .Distinct()
-                .ToList();
-
-            if (targetLanguagesWithCaptions.Any())
-            {
-                _logger.LogInformation(
-                    "Translation skipped because captions exist for target languages: |Green|{CaptionLanguages}|/Green| and ignoreCaptions is disabled",
-                    string.Join(", ", targetLanguagesWithCaptions));
-                await UpdateHash();
-                return false;
-            }
+            _logger.LogInformation(
+                "Skipping already-present target language(s) for |Green|{FileName}|/Green|: |Orange|{Languages}|/Orange|",
+                _media.FileName,
+                string.Join(", ", targetLanguages.Where(presentLanguages.Contains)));
         }
         
         var activeStatuses = new[]
@@ -277,12 +280,14 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
     /// <param name="sourceLanguages">The source languages.</param>
     /// <param name="targetLanguages">The target languages.</param>
     /// <param name="ignoreCaptions">The ignore captions setting.</param>
+    /// <param name="presentLanguages">Full (non-forced) languages already present, included so PGS changes invalidate the hash.</param>
     /// <returns>A Base64 encoded string representing the hash of the current subtitle state.</returns>
     private string CreateHash(
         List<Subtitles> subtitles,
         IReadOnlyList<string> sourceLanguages,
         IReadOnlyList<string> targetLanguages,
-        string ignoreCaptions)
+        string ignoreCaptions,
+        IReadOnlyCollection<string> presentLanguages)
     {
         using var sha256 = SHA256.Create();
         var subtitleKeys = string.Join("|", subtitles
@@ -291,8 +296,9 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
         
         var sourceLangs = string.Join(",", sourceLanguages.OrderBy(l => l));
         var targetLangs = string.Join(",", targetLanguages.OrderBy(l => l));
+        var presentLangs = string.Join(",", presentLanguages.OrderBy(l => l, StringComparer.Ordinal));
         
-        var hashInput = $"{subtitleKeys}|{sourceLangs}|{targetLangs}|{ignoreCaptions}";
+        var hashInput = $"{subtitleKeys}|{sourceLangs}|{targetLangs}|{ignoreCaptions}|{presentLangs}";
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(hashInput));
         return Convert.ToBase64String(hashBytes);
     }

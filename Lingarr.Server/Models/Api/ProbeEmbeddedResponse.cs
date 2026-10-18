@@ -30,4 +30,7 @@ public class SkippedEmbeddedTrackDto
     public int Index { get; set; }
     public string CodecName { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
+    public string Language { get; set; } = string.Empty;
+    public string Caption { get; set; } = string.Empty;
+    public bool IsForced { get; set; }
 }

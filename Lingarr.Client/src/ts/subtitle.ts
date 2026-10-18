@@ -29,6 +29,9 @@ export interface ISkippedEmbeddedTrack {
     index: number
     codecName: string
     reason: string
+    language?: string
+    caption?: string
+    isForced?: boolean
 }
 
 export interface IProbeEmbeddedResponse {

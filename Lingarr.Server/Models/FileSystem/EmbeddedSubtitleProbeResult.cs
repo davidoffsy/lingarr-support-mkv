@@ -42,4 +42,12 @@ public class SkippedEmbeddedSubtitleTrack
     public int Index { get; init; }
     public string CodecName { get; init; } = string.Empty;
     public string Reason { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Normalized language used for presence checks (<c>en</c>, <c>zh</c>, <c>und</c>, <c>unknown</c>).
+    /// </summary>
+    public string Language { get; init; } = EmbeddedSubtitleTrack.UnknownLanguage;
+
+    public string Caption { get; init; } = string.Empty;
+    public bool IsForced { get; init; }
 }

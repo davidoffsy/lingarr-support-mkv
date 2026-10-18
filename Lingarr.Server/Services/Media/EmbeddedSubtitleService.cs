@@ -393,6 +393,15 @@ public class EmbeddedSubtitleService : IEmbeddedSubtitleService
         var skipped = new List<SkippedEmbeddedSubtitleTrack>();
         foreach (var stream in probe.Streams)
         {
+            var isForced = IsFlagSet(stream.Disposition?.Forced);
+            var isHearingImpaired = IsFlagSet(stream.Disposition?.HearingImpaired);
+            var caption = isForced
+                ? "forced"
+                : isHearingImpaired
+                    ? "sdh"
+                    : string.Empty;
+            var language = MapLanguage(GetTag(stream.Tags, "language"));
+
             if (!TryGetSubtitleExtension(stream.CodecName, out var extension))
             {
                 _logger.LogDebug(
@@ -404,24 +413,19 @@ public class EmbeddedSubtitleService : IEmbeddedSubtitleService
                 {
                     Index = stream.Index,
                     CodecName = stream.CodecName ?? string.Empty,
-                    Reason = SkipReason(stream.CodecName)
+                    Reason = SkipReason(stream.CodecName),
+                    Language = language,
+                    Caption = caption,
+                    IsForced = isForced
                 });
                 continue;
             }
-
-            var isForced = IsFlagSet(stream.Disposition?.Forced);
-            var isHearingImpaired = IsFlagSet(stream.Disposition?.HearingImpaired);
-            var caption = isForced
-                ? "forced"
-                : isHearingImpaired
-                    ? "sdh"
-                    : string.Empty;
 
             tracks.Add(new EmbeddedSubtitleTrack
             {
                 Index = stream.Index,
                 CodecName = stream.CodecName ?? string.Empty,
-                Language = MapLanguage(GetTag(stream.Tags, "language")),
+                Language = language,
                 Caption = caption,
                 Title = GetTag(stream.Tags, "title") ?? string.Empty,
                 Extension = extension,

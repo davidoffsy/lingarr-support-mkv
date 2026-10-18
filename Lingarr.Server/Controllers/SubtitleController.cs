@@ -122,7 +122,10 @@ public class SubtitleController : ControllerBase
             {
                 Index = skipped.Index,
                 CodecName = skipped.CodecName,
-                Reason = skipped.Reason
+                Reason = skipped.Reason,
+                Language = skipped.Language,
+                Caption = skipped.Caption,
+                IsForced = skipped.IsForced
             }).ToList()
         });
     }
