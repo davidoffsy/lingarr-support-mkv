@@ -10,9 +10,11 @@
                 <div class="flex flex-col space-x-2">
                     <span class="font-semibold">Scan embedded MKV subtitles:</span>
                     When enabled, automatic and bulk translation can use MKV text tracks
-                    (SRT / ASS / SSA) as a source. Auto jobs always probe the MKV to see if the
-                    target language is already present, including image tracks such as PGS.
-                    Forced-only tracks do not count. Movie and show lists are not probed.
+                    (SRT / ASS / SSA) as a source. Auto jobs probe the MKV only when a source
+                    or missing target may be inside it, including image tracks such as PGS.
+                    Forced-only tracks do not count as the language being present; SDH / HI / CC
+                    tracks do. Region variants such as zh-CN match a zh track.
+                    Movie and show lists are not probed.
                     Enabled by default on new installations; existing settings are preserved.
                 </div>
                 <ToggleButton v-model="scanEmbeddedSubtitles">
@@ -49,10 +51,10 @@
 
                 <div class="flex flex-col space-x-2">
                     <span class="font-semibold">
-                        Skip translation if subtitles with caption tags exist:
+                        Prefer a regular source subtitle:
                     </span>
                     Prefer a regular (non-forced / non-SDH) source track when one exists.
-                    A forced-only target track is not treated as the language already being present.
+                    This setting does not decide whether the target language is already present.
                 </div>
                 <ToggleButton v-model="ignoreCaptions">
                     <span class="text-primary-content text-sm font-medium">

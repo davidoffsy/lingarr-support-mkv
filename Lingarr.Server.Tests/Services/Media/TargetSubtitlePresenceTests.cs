@@ -105,6 +105,51 @@ public class TargetSubtitlePresenceTests
         Assert.Single(present);
     }
 
+    [Fact]
+    public void Covers_ZhCnTargetMatchesZhTrack()
+    {
+        var present = TargetSubtitlePresence.FullLanguages(
+            [],
+            EmbeddedSubtitleProbeResult.Success([], [Skipped(4, "zh")]));
+
+        Assert.True(TargetSubtitlePresence.Covers(present, "zh-CN"));
+        Assert.True(TargetSubtitlePresence.Covers(present, "zh-cn"));
+        Assert.True(TargetSubtitlePresence.CoversAll(present, ["zh-CN"]));
+        Assert.Empty(TargetSubtitlePresence.Missing(present, ["zh-CN"]));
+    }
+
+    [Fact]
+    public void Covers_ZhTargetMatchesZhCnSidecar()
+    {
+        var present = TargetSubtitlePresence.FullLanguages([Sidecar("zh-CN")]);
+
+        Assert.True(TargetSubtitlePresence.Covers(present, "zh"));
+    }
+
+    [Fact]
+    public void Covers_TraditionalDoesNotMatchSimplified()
+    {
+        var present = TargetSubtitlePresence.FullLanguages([Sidecar("zh-CN")]);
+
+        Assert.False(TargetSubtitlePresence.Covers(present, "zh-TW"));
+        Assert.Equal(["zh-TW"], TargetSubtitlePresence.Missing(present, ["zh-TW"]));
+    }
+
+    [Fact]
+    public void Covers_PtBrDoesNotMatchPtPt()
+    {
+        var present = TargetSubtitlePresence.FullLanguages([Sidecar("pt-BR")]);
+
+        Assert.False(TargetSubtitlePresence.Covers(present, "pt-PT"));
+        Assert.True(TargetSubtitlePresence.Covers(present, "pt"));
+    }
+
+    [Fact]
+    public void CoversAll_EmptyTargets_IsFalse()
+    {
+        Assert.False(TargetSubtitlePresence.CoversAll(["en"], []));
+    }
+
     private static Subtitles Sidecar(string language, string caption = "") => new()
     {
         Path = $"/movies/Foo/Foo.{language}.srt",

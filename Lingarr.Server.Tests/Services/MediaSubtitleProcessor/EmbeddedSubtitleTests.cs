@@ -14,7 +14,7 @@ public class EmbeddedSubtitleTests : MediaSubtitleProcessorTestBase
     private const string MkvPath = "/movies/test/test.movie.mkv";
 
     [Fact]
-    public async Task ProcessMedia_ScanDisabled_ProbesForTargetPresenceButDoesNotUseEmbeddedSource()
+    public async Task ProcessMedia_ScanDisabled_NoSidecars_DoesNotProbe()
     {
         var movie = await CreateTestMovie();
         SubtitleServiceMock
@@ -26,12 +26,34 @@ public class EmbeddedSubtitleTests : MediaSubtitleProcessorTestBase
         var result = await Processor.ProcessMedia(movie, MediaType.Movie);
 
         Assert.False(result);
-        MediaFileLocatorMock.Verify(l => l.FindMkv(movie), Times.Once);
+        Assert.False(string.IsNullOrEmpty(movie.MediaHash));
+        MediaFileLocatorMock.Verify(l => l.FindMkv(movie), Times.Never);
         EmbeddedSubtitleServiceMock.Verify(
-            s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()),
-            Times.Once);
+            s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
         EmbeddedSubtitleServiceMock.Verify(
             s => s.ExtractAsync(It.IsAny<string>(), It.IsAny<EmbeddedSubtitleTrack>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        TranslationRequestServiceMock.Verify(
+            s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessMedia_SidecarAlreadyHasTarget_DoesNotProbe()
+    {
+        var movie = await CreateTestMovie();
+        SubtitleServiceMock
+            .Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync([Sidecar("en"), Sidecar("ro")]);
+        SetupStandardSettings();
+        SetupProbe(movie, Track(2, "en"), Track(3, "ro"));
+
+        var result = await Processor.ProcessMedia(movie, MediaType.Movie);
+
+        Assert.False(result);
+        EmbeddedSubtitleServiceMock.Verify(
+            s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
         TranslationRequestServiceMock.Verify(
             s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
@@ -209,6 +231,52 @@ public class EmbeddedSubtitleTests : MediaSubtitleProcessorTestBase
     }
 
     [Fact]
+    public async Task ProcessMedia_PgsSkip_SecondRun_DoesNotProbe()
+    {
+        var movie = await CreateTestMovie();
+        SubtitleServiceMock
+            .Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync([Sidecar("en")]);
+        SetupStandardSettings();
+        SetupProbe(movie, [], [Pgs("ro")]);
+
+        Assert.False(await Processor.ProcessMedia(movie, MediaType.Movie));
+        Assert.False(await Processor.ProcessMedia(movie, MediaType.Movie));
+
+        EmbeddedSubtitleServiceMock.Verify(
+            s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()),
+            Times.Once);
+        TranslationRequestServiceMock.Verify(
+            s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessMedia_ZhCnTarget_PgsZh_Skips()
+    {
+        var movie = await CreateTestMovie();
+        SubtitleServiceMock
+            .Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync([Sidecar("en")]);
+        SetupStandardSettings();
+        SettingServiceMock
+            .Setup(s => s.GetSettingAsJson<Lingarr.Server.Models.TargetLanguage>(
+                Lingarr.Core.Configuration.SettingKeys.Translation.TargetLanguages))
+            .ReturnsAsync(
+            [
+                new Lingarr.Server.Models.TargetLanguage { Code = "zh-CN", Name = "Chinese (Simplified)" }
+            ]);
+        SetupProbe(movie, [], [Pgs("zh")]);
+
+        var result = await Processor.ProcessMedia(movie, MediaType.Movie);
+
+        Assert.False(result);
+        TranslationRequestServiceMock.Verify(
+            s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ProcessMedia_EmbeddedForcedTargetOnly_StillTranslates()
     {
         var movie = await CreateTestMovie();
@@ -355,6 +423,9 @@ public class EmbeddedSubtitleTests : MediaSubtitleProcessorTestBase
             Times.Once);
         EmbeddedSubtitleServiceMock.Verify(
             s => s.ExtractAsync(MkvPath, It.IsAny<EmbeddedSubtitleTrack>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        EmbeddedSubtitleServiceMock.Verify(
+            s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 

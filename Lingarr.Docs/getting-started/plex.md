@@ -22,8 +22,8 @@ The webhook secret is generated in Lingarr and appears only as the query `token=
 ## Behaviour
 
 - Sidecar subtitles are preferred. If none match, Lingarr uses an MKV text track (not Forced or SDH). Extraction runs on the translation queue, not the webhook worker — a cloud remux can be slow.
-- Five-star ratings still probe MKV even if **Scan embedded subtitles** is off.
-- Translation is skipped when a full target-language subtitle already exists as a sidecar or inside the MKV (text or PGS). Forced-only tracks do not count.
+- Five-star ratings still probe MKV even if **Scan embedded subtitles** is off, unless a full target-language sidecar already exists.
+- Translation is skipped when a full target-language subtitle already exists as a sidecar or inside the MKV (text or PGS). Forced-only tracks do not count. SDH / HI / CC tracks count as present. Region codes such as zh-CN match a zh track.
 - Titles that are not in Lingarr's Arr library are skipped (no new movie rows).
 
 ## Prerequisites
@@ -48,6 +48,6 @@ The webhook secret is generated in Lingarr and appears only as the query `token=
 7. Rate five stars on a title that exists in Plex but not in Lingarr. Logs show a skip; no new Movie row and no translation job.
 8. Use an Arr title that only has embedded English in the MKV. The job shows extract progress (cloud storage can take a long time). The webhook queue must not stall.
 9. With **Scan embedded subtitles** off, five-star still translates embedded tracks (decoupled from automatic scanning).
-10. If the MKV already has a full target-language track (including PGS), five-star does not enqueue. A forced-only target track still translates.
+10. If the MKV already has a full target-language track (including PGS), five-star does not enqueue. A forced-only target track still translates. SDH counts as done. zh-CN matches a zh track.
 11. After **Disconnect**, five-star can no longer resolve paths (logs say unauthorized). The webhook secret still validates inbound requests.
 12. From a Plex Home **managed account** (the profile signed in on a TV), rate a synced movie five stars. It is enqueued. The default **Home users** setting must not block this.

@@ -156,6 +156,9 @@ public class PlexRatingTriggerTests : IDisposable
         await _trigger.EnqueueAsync(ResolvedMovie());
 
         _requests.Verify(s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()), Times.Never);
+        _embedded.Verify(
+            s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
         VerifyNeverExtracts();
     }
 
@@ -447,6 +450,27 @@ public class PlexRatingTriggerTests : IDisposable
                 Language = "zh",
                 Extension = ".srt"
             });
+
+        await _trigger.EnqueueAsync(ResolvedMovie());
+
+        _requests.Verify(s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Enqueue_ZhCnTarget_PgsZh_CountsAsDone()
+    {
+        SetupLanguages(source: "en", target: "zh-CN");
+        SetupEmbedded(
+            [EnglishTrack(2)],
+            [
+                new SkippedEmbeddedSubtitleTrack
+                {
+                    Index = 4,
+                    CodecName = "hdmv_pgs_subtitle",
+                    Reason = EmbeddedSubtitleProbeResult.SkipReasonImage,
+                    Language = "zh"
+                }
+            ]);
 
         await _trigger.EnqueueAsync(ResolvedMovie());
 

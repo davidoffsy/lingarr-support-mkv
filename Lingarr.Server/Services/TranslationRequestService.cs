@@ -291,7 +291,18 @@ public class TranslationRequestService : ITranslationRequestService
             return;
         }
 
-        var (subtitles, probe) = await CollectSubtitles(path, fileName);
+        var subtitles = await _subtitleService.GetSubtitles(path, fileName);
+        var sidecarPresent = TargetSubtitlePresence.FullLanguages(subtitles);
+        if (TargetSubtitlePresence.Covers(sidecarPresent, targetLanguage))
+        {
+            _logger.LogDebug("Bulk: skipping mediaId {MediaId} — target language {Target} already exists",
+                mediaId, targetLanguage);
+            return;
+        }
+
+        var scanEmbedded = await _settingService.GetSetting(SettingKeys.Translation.ScanEmbeddedSubtitles) == "true";
+        var (collected, probe) = await CollectSubtitles(path, fileName, subtitles, scanEmbedded);
+        subtitles = collected;
         var selected = _subtitleService.SelectSourceSubtitle(subtitles, sourceCodes, ignoreCaptions);
         if (selected == null)
         {
@@ -302,7 +313,7 @@ public class TranslationRequestService : ITranslationRequestService
         }
 
         var presentLanguages = TargetSubtitlePresence.FullLanguages(subtitles, probe);
-        if (presentLanguages.Contains(targetLanguage))
+        if (TargetSubtitlePresence.Covers(presentLanguages, targetLanguage))
         {
             _logger.LogDebug("Bulk: skipping mediaId {MediaId} — target language {Target} already exists",
                 mediaId, targetLanguage);
@@ -328,9 +339,18 @@ public class TranslationRequestService : ITranslationRequestService
 
     private async Task<(List<Subtitles> Subtitles, EmbeddedSubtitleProbeResult? Probe)> CollectSubtitles(
         string path,
-        string fileName)
+        string fileName,
+        List<Subtitles> subtitles,
+        bool scanEmbedded)
     {
-        var subtitles = await _subtitleService.GetSubtitles(path, fileName);
+        if (!EmbeddedSubtitleProbeNeed.ShouldProbe(
+                scanEmbedded,
+                sidecarCoversAllTargets: false,
+                hasSidecarSource: subtitles.Count > 0))
+        {
+            return (subtitles, null);
+        }
+
         var mkvPath = _mediaFileLocator.FindMkv(path, fileName);
         if (mkvPath == null)
         {
@@ -340,7 +360,6 @@ public class TranslationRequestService : ITranslationRequestService
         try
         {
             var probe = await _embeddedSubtitleService.ProbeDetailedAsync(mkvPath);
-            var scanEmbedded = await _settingService.GetSetting(SettingKeys.Translation.ScanEmbeddedSubtitles) == "true";
             if (scanEmbedded && probe is { Found: true })
             {
                 subtitles = EmbeddedSubtitleMerger.Merge(subtitles, probe.Tracks, mkvPath);

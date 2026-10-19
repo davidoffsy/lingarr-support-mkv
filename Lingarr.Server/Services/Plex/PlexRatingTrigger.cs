@@ -80,15 +80,24 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         }
 
         var sidecars = await _subtitleService.GetSubtitles(media.Path, media.FileName);
-        var mkvPath = _mediaFileLocator.FindMkv(media);
-        var probe = await ProbeAsync(mkvPath, media.FileName, cancellationToken);
-        var tracks = probe?.Tracks ?? [];
-        var candidates = PlexSubtitleCandidateMerger.Merge(sidecars, tracks, mkvPath);
-
         var sourceLanguages = SourceLanguagePicker.CodesInOrder(
             await _settingService.GetSettingAsJson<SourceLanguage>(SettingKeys.Translation.SourceLanguages));
         var targetLanguages = SourceLanguagePicker.CodesInOrder(
             await _settingService.GetSettingAsJson<TargetLanguage>(SettingKeys.Translation.TargetLanguages));
+        var sidecarPresent = TargetSubtitlePresence.FullLanguages(sidecars);
+        if (TargetSubtitlePresence.CoversAll(sidecarPresent, targetLanguages))
+        {
+            _logger.LogInformation(
+                "Plex rating trigger skipped: target language(s) already present for {FileName}: {Languages}",
+                media.FileName,
+                string.Join(", ", targetLanguages));
+            return;
+        }
+
+        var mkvPath = _mediaFileLocator.FindMkv(media);
+        var probe = await ProbeAsync(mkvPath, media.FileName, cancellationToken);
+        var tracks = probe?.Tracks ?? [];
+        var candidates = PlexSubtitleCandidateMerger.Merge(sidecars, tracks, mkvPath);
         var ignoreCaptions = await _settingService.GetSetting(SettingKeys.Translation.IgnoreCaptions) == "true";
 
         var (selected, plexCount) = await ResolveSourceAsync(
@@ -140,7 +149,7 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         var enqueued = 0;
         foreach (var targetLanguage in targetLanguages)
         {
-            if (presentLanguages.Contains(targetLanguage))
+            if (TargetSubtitlePresence.Covers(presentLanguages, targetLanguage))
             {
                 _logger.LogInformation(
                     "Plex rating trigger skipped target {TargetLanguage}: already present for {FileName}",
