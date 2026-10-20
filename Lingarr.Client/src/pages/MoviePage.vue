@@ -107,6 +107,7 @@
                             </ContextMenu>
                         </div>
                         <button
+                            v-if="allowsMkvExtract(item.fileExtension)"
                             type="button"
                             title="Extract embedded subtitles"
                             class="inline-flex cursor-pointer items-center"
@@ -180,7 +181,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, ComputedRef } from 'vue'
-import { IFilter, ILanguage, IMovie, INPUT_TYPE, INPUT_VALIDATION_TYPE, IPagedResult, MEDIA_TYPE, SETTINGS } from '@/ts'
+import { allowsMkvExtract, IFilter, ILanguage, IMovie, INPUT_TYPE, INPUT_VALIDATION_TYPE, IPagedResult, MEDIA_TYPE, SETTINGS } from '@/ts'
 import useDebounce from '@/composables/useDebounce'
 import useExtractBadgeRefresh from '@/composables/useExtractBadgeRefresh'
 import { useMovieStore } from '@/store/movie'

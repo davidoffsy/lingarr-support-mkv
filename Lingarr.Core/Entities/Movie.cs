@@ -1,4 +1,4 @@
-﻿using Lingarr.Core.Interfaces;
+using Lingarr.Core.Interfaces;
 
 namespace Lingarr.Core.Entities;
 
@@ -7,6 +7,7 @@ public class Movie : BaseEntity, IMedia
     public required int RadarrId { get; set; }
     public required string Title { get; set; }
     public required string? FileName { get; set; }
+    public string? FileExtension { get; set; }
     public required string? Path { get; set; }
     public string? MediaHash { get; set; } = string.Empty;
     public required DateTimeOffset? DateAdded { get; set; }

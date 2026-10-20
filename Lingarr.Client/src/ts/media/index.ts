@@ -21,6 +21,7 @@ export interface IMovie extends IBaseEntity {
     radarrId: number
     title: string
     fileName: string
+    fileExtension?: string | null
     path: string
     dateAdded?: Date | null
     images: IImage[]
@@ -162,10 +163,20 @@ export interface IEpisode extends IBaseEntity {
     episodeNumber: number
     title: string
     fileName?: string | null
+    fileExtension?: string | null
     path?: string | null
     seasonId: number
     season: ISeason
     includeInTranslation: boolean
+}
+
+/** Matches backend MediaFileExtension.AllowsMkvLookup: unknown containers keep the extract button. */
+export function allowsMkvExtract(fileExtension?: string | null): boolean {
+    const extension = fileExtension?.trim()
+    if (!extension) {
+        return true
+    }
+    return extension.toLowerCase() === '.mkv'
 }
 
 export interface IPagedResult<T> {

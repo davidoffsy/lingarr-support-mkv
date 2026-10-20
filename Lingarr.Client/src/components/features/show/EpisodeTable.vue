@@ -39,6 +39,7 @@
                         </BadgeComponent>
                     </ContextMenu>
                     <button
+                        v-if="allowsMkvExtract(episode.fileExtension)"
                         type="button"
                         title="Extract embedded subtitles"
                         class="inline-flex cursor-pointer items-center"
@@ -76,7 +77,7 @@
 </template>
 <script setup lang="ts">
 import { ref } from 'vue'
-import { IEpisode, ISubtitle, MEDIA_TYPE } from '@/ts'
+import { allowsMkvExtract, IEpisode, ISubtitle, MEDIA_TYPE } from '@/ts'
 import BadgeComponent from '@/components/common/BadgeComponent.vue'
 import ContextMenu from '@/components/layout/ContextMenu.vue'
 import ToggleButton from '@/components/common/ToggleButton.vue'

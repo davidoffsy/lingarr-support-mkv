@@ -1,9 +1,10 @@
-﻿using Lingarr.Core.Data;
+using Lingarr.Core.Data;
 using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
 using Lingarr.Core.Helpers;
 using Lingarr.Server.Interfaces.Services.Sync;
 using Lingarr.Server.Models.Integrations;
+using Lingarr.Server.Services.Media;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lingarr.Server.Services.Sync;
@@ -44,6 +45,7 @@ public class MovieSync : IMovieSync
             movie.MovieFile.Path ?? string.Empty,
             MediaType.Movie
         );
+        var fileExtension = MediaFileExtension.NormalizeFromPath(moviePath);
 
         if (movieEntity == null)
         {
@@ -53,6 +55,7 @@ public class MovieSync : IMovieSync
                 Title = movie.Title,
                 DateAdded = UtcDateTime.Parse(movie.Added),
                 FileName = Path.GetFileNameWithoutExtension(moviePath),
+                FileExtension = fileExtension,
                 Path = Path.GetDirectoryName(moviePath) ?? string.Empty,
                 IncludeInTranslation = defaultInclude
             };
@@ -63,6 +66,7 @@ public class MovieSync : IMovieSync
             movieEntity.Title = movie.Title;
             movieEntity.DateAdded = UtcDateTime.Parse(movie.Added);
             movieEntity.FileName = Path.GetFileNameWithoutExtension(moviePath);
+            movieEntity.FileExtension = fileExtension;
             movieEntity.Path = Path.GetDirectoryName(moviePath) ?? string.Empty;
         }
 

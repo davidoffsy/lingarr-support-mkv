@@ -94,6 +94,50 @@ public class MediaFileLocatorTests : IDisposable
         Assert.Equal(path, result);
     }
 
+    [Theory]
+    [InlineData(".mp4")]
+    [InlineData(".MP4")]
+    [InlineData(".avi")]
+    public void FindMkv_KnownNonMkvMediaDoesNotMatchAnotherMkv(string extension)
+    {
+        Touch("Movie.mkv");
+        Touch("Movie.extended.mkv");
+        Touch("Movie" + extension);
+        var media = new Movie
+        {
+            RadarrId = 1,
+            Title = "Movie",
+            FileName = "Movie",
+            FileExtension = extension,
+            Path = _directory,
+            DateAdded = DateTimeOffset.UtcNow
+        };
+
+        Assert.Null(_locator.FindMkv(media));
+    }
+
+    [Theory]
+    [InlineData(".mkv")]
+    [InlineData(".MKV")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void FindMkv_KnownMkvOrUnknownMediaRetainsLookup(string? extension)
+    {
+        var path = Touch("Movie.mkv");
+        var media = new Movie
+        {
+            RadarrId = 1,
+            Title = "Movie",
+            FileName = "Movie",
+            FileExtension = extension,
+            Path = _directory,
+            DateAdded = DateTimeOffset.UtcNow
+        };
+
+        Assert.Equal(path, _locator.FindMkv(media));
+    }
+
     private string Touch(string fileName)
     {
         var path = Path.Combine(_directory, fileName);

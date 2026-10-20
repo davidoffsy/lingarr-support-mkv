@@ -1,8 +1,9 @@
-﻿using Lingarr.Core.Entities;
+using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
 using Lingarr.Server.Interfaces.Services.Integration;
 using Lingarr.Server.Interfaces.Services.Sync;
 using Lingarr.Server.Models.Integrations;
+using Lingarr.Server.Services.Media;
 
 namespace Lingarr.Server.Services.Sync;
 
@@ -49,6 +50,8 @@ public class EpisodeSync : IEpisodeSync
     private static void SyncEpisode(SonarrEpisode episode, string episodePath, Season season, DateTimeOffset? dateAdded, bool defaultInclude = true)
     {
         var episodeEntity = season.Episodes.FirstOrDefault(se => se.SonarrId == episode.Id);
+        var fileExtension = MediaFileExtension.NormalizeFromPath(episodePath);
+
         if (episodeEntity == null)
         {
             episodeEntity = new Episode
@@ -57,6 +60,7 @@ public class EpisodeSync : IEpisodeSync
                 EpisodeNumber = episode.EpisodeNumber,
                 Title = episode.Title,
                 FileName = Path.GetFileNameWithoutExtension(episodePath),
+                FileExtension = fileExtension,
                 Path = Path.GetDirectoryName(episodePath),
                 Season = season,
                 DateAdded = dateAdded,
@@ -69,6 +73,7 @@ public class EpisodeSync : IEpisodeSync
             episodeEntity.EpisodeNumber = episode.EpisodeNumber;
             episodeEntity.Title = episode.Title;
             episodeEntity.FileName = Path.GetFileNameWithoutExtension(episodePath);
+            episodeEntity.FileExtension = fileExtension;
             episodeEntity.Path = Path.GetDirectoryName(episodePath);
             episodeEntity.DateAdded = dateAdded;
         }

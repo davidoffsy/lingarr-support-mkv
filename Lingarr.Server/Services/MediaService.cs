@@ -1,4 +1,4 @@
-﻿using Lingarr.Core.Configuration;
+using Lingarr.Core.Configuration;
 using Lingarr.Core.Data;
 using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
@@ -88,6 +88,7 @@ public class MediaService : IMediaService
                 RadarrId = movie.RadarrId,
                 Title = movie.Title,
                 FileName = movie.FileName ?? string.Empty,
+                FileExtension = movie.FileExtension,
                 Path = movie.Path,
                 DateAdded = movie.DateAdded,
                 Images = movie.Images,

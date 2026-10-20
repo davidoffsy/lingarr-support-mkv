@@ -22,6 +22,11 @@ public class MediaFileLocator : IMediaFileLocator
             return null;
         }
 
+        if (!MediaFileExtension.AllowsMkvLookup(media.FileExtension))
+        {
+            return null;
+        }
+
         return FindMkv(media.Path, media.FileName);
     }
 

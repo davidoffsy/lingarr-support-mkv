@@ -170,6 +170,8 @@ The Lingarr Docker image bundles **FFmpeg** (including `ffprobe`) so it can insp
 
 You can list and extract embedded text tracks from a movie or episode without enabling automatic MKV scanning. Extraction reads the video file; on a cloud mount this can take a long time. Use the Translations page to watch extract then translation progress. On-demand extract timeout defaults to 60 minutes; automatic / bulk extract stays at 2 minutes. SQLite Hangfire uses `max(JOB_TIMEOUT_MINUTES, EXTRACT_TIMEOUT_MINUTES)`.
 
+The MKV extraction button is shown for `.mkv` videos and for media whose container is not yet known. It is hidden once a non-MKV extension such as `.mp4` has been recorded. After upgrading, sync Radarr/Sonarr again to populate file extensions; until then the button stays visible.
+
 Additional [settings](Settings.MD) can be found here that can be set as environment variables to persist settings for each reinstall
 
 ## Setting up LibreTranslate

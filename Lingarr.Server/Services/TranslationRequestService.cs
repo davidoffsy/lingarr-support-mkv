@@ -6,6 +6,7 @@ using Lingarr.Contracts.Translation;
 using Lingarr.Core.Data;
 using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
+using Lingarr.Core.Interfaces;
 using Lingarr.Core.Configuration;
 using Lingarr.Server.Hubs;
 using Lingarr.Server.Interfaces.Services;
@@ -226,12 +227,10 @@ public class TranslationRequestService : ITranslationRequestService
                         continue;
                     }
                     await ProcessMediaSubtitles(
-                        movie.Path, 
-                        movie.FileName, 
-                        movie.Id, 
+                        movie,
                         MediaType.Movie,
-                        request.TargetLanguage, 
-                        sourceCodes, 
+                        request.TargetLanguage,
+                        sourceCodes,
                         ignoreCaptions);
                 }
                 break;
@@ -259,12 +258,10 @@ public class TranslationRequestService : ITranslationRequestService
                                 continue;
                             }
                             await ProcessMediaSubtitles(
-                                season.Path, 
-                                episode.FileName, 
-                                episode.Id, 
+                                episode,
                                 MediaType.Episode,
                                 request.TargetLanguage,
-                                sourceCodes, 
+                                sourceCodes,
                                 ignoreCaptions);
                         }
                     }
@@ -277,37 +274,35 @@ public class TranslationRequestService : ITranslationRequestService
     /// Discovers subtitles for a media item, resolves the source subtitle, and creates a translation request.
     /// </summary>
     private async Task ProcessMediaSubtitles(
-        string path, 
-        string? fileName, 
-        int mediaId, 
+        IMedia media,
         MediaType mediaType,
-        string targetLanguage, 
-        IReadOnlyList<string> sourceCodes, 
+        string targetLanguage,
+        IReadOnlyList<string> sourceCodes,
         string ignoreCaptions)
     {
-        if (string.IsNullOrEmpty(fileName))
+        if (string.IsNullOrEmpty(media.FileName) || string.IsNullOrEmpty(media.Path))
         {
-            _logger.LogDebug("Bulk: skipping mediaId {MediaId} — fileName is empty", mediaId);
+            _logger.LogDebug("Bulk: skipping mediaId {MediaId} — fileName or path is empty", media.Id);
             return;
         }
 
-        var subtitles = await _subtitleService.GetSubtitles(path, fileName);
+        var subtitles = await _subtitleService.GetSubtitles(media.Path, media.FileName);
         var sidecarPresent = TargetSubtitlePresence.FullLanguages(subtitles);
         if (TargetSubtitlePresence.Covers(sidecarPresent, targetLanguage))
         {
             _logger.LogDebug("Bulk: skipping mediaId {MediaId} — target language {Target} already exists",
-                mediaId, targetLanguage);
+                media.Id, targetLanguage);
             return;
         }
 
         var scanEmbedded = await _settingService.GetSetting(SettingKeys.Translation.ScanEmbeddedSubtitles) == "true";
-        var (collected, probe) = await CollectSubtitles(path, fileName, subtitles, scanEmbedded);
+        var (collected, probe) = await CollectSubtitles(media, subtitles, scanEmbedded);
         subtitles = collected;
         var selected = _subtitleService.SelectSourceSubtitle(subtitles, sourceCodes, ignoreCaptions);
         if (selected == null)
         {
             _logger.LogDebug("Bulk: skipping mediaId {MediaId} — no source subtitle found (sourceCodes: {SourceCodes}, available: {Available})",
-                mediaId, string.Join(", ", sourceCodes),
+                media.Id, string.Join(", ", sourceCodes),
                 string.Join(", ", subtitles.Select(s => s.Language)));
             return;
         }
@@ -316,19 +311,19 @@ public class TranslationRequestService : ITranslationRequestService
         if (TargetSubtitlePresence.Covers(presentLanguages, targetLanguage))
         {
             _logger.LogDebug("Bulk: skipping mediaId {MediaId} — target language {Target} already exists",
-                mediaId, targetLanguage);
+                media.Id, targetLanguage);
             return;
         }
 
-        if (!await EnsureSidecarSource(selected.Subtitle, path, fileName))
+        if (!await EnsureSidecarSource(selected.Subtitle, media))
         {
-            _logger.LogDebug("Bulk: skipping mediaId {MediaId} — failed to extract embedded source subtitle", mediaId);
+            _logger.LogDebug("Bulk: skipping mediaId {MediaId} — failed to extract embedded source subtitle", media.Id);
             return;
         }
 
         await CreateRequest(new TranslateAbleSubtitle
         {
-            MediaId = mediaId,
+            MediaId = media.Id,
             MediaType = mediaType,
             SubtitlePath = selected.Subtitle.Path,
             TargetLanguage = targetLanguage,
@@ -338,8 +333,7 @@ public class TranslationRequestService : ITranslationRequestService
     }
 
     private async Task<(List<Subtitles> Subtitles, EmbeddedSubtitleProbeResult? Probe)> CollectSubtitles(
-        string path,
-        string fileName,
+        IMedia media,
         List<Subtitles> subtitles,
         bool scanEmbedded)
     {
@@ -351,7 +345,7 @@ public class TranslationRequestService : ITranslationRequestService
             return (subtitles, null);
         }
 
-        var mkvPath = _mediaFileLocator.FindMkv(path, fileName);
+        var mkvPath = _mediaFileLocator.FindMkv(media);
         if (mkvPath == null)
         {
             return (subtitles, null);
@@ -378,14 +372,14 @@ public class TranslationRequestService : ITranslationRequestService
         }
     }
 
-    private async Task<bool> EnsureSidecarSource(Subtitles subtitle, string path, string fileName)
+    private async Task<bool> EnsureSidecarSource(Subtitles subtitle, IMedia media)
     {
         if (!subtitle.IsEmbedded)
         {
             return true;
         }
 
-        var mkvPath = _mediaFileLocator.FindMkv(path, fileName);
+        var mkvPath = _mediaFileLocator.FindMkv(media);
         if (mkvPath == null)
         {
             return false;

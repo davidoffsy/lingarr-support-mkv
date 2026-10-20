@@ -1,4 +1,4 @@
-﻿using Lingarr.Core.Entities;
+using Lingarr.Core.Entities;
 using Lingarr.Server.Models.FileSystem;
 
 namespace Lingarr.Server.Models.Api;
@@ -9,6 +9,7 @@ public class MovieResponse
     public required int RadarrId { get; set; }
     public required string Title { get; set; }
     public required string FileName { get; set; }
+    public string? FileExtension { get; set; }
     public required string Path { get; set; }
     public required DateTimeOffset? DateAdded { get; set; }
     public List<Image> Images { get; set; } = new();

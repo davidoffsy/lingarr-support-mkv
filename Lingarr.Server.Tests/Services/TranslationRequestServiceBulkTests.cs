@@ -11,6 +11,7 @@ using Lingarr.Core.Configuration;
 using Lingarr.Core.Data;
 using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
+using Lingarr.Core.Interfaces;
 using Lingarr.Server.Hubs;
 using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Interfaces.Services.Translation;
@@ -133,7 +134,7 @@ public class TranslationRequestServiceBulkTests : IDisposable
     public async Task CreateBulkRequest_TargetSidecarExists_DoesNotProbe()
     {
         SetupSidecars(Sidecar(EnSidecar, "en"), Sidecar("/movies/Foo/Foo.zh.srt", "zh"));
-        _locator.Setup(locator => locator.FindMkv(_movie.Path, _movie.FileName)).Returns(MkvPath);
+        SetupFindMkv(MkvPath);
 
         await _service.CreateBulkRequest(Bulk("zh"));
 
@@ -147,7 +148,7 @@ public class TranslationRequestServiceBulkTests : IDisposable
     public async Task CreateBulkRequest_ZhCnTarget_PgsZh_Skips()
     {
         SetupSidecars(Sidecar(EnSidecar, "en"));
-        _locator.Setup(locator => locator.FindMkv(_movie.Path, _movie.FileName)).Returns(MkvPath);
+        SetupFindMkv(MkvPath);
         _embedded.Setup(service => service.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(EmbeddedSubtitleProbeResult.Success(
                 [],
@@ -173,7 +174,7 @@ public class TranslationRequestServiceBulkTests : IDisposable
     public async Task CreateBulkRequest_ScanDisabled_NoSidecars_DoesNotProbe()
     {
         SetupSidecars();
-        _locator.Setup(locator => locator.FindMkv(_movie.Path, _movie.FileName)).Returns(MkvPath);
+        SetupFindMkv(MkvPath);
 
         await _service.CreateBulkRequest(Bulk("zh"));
 
@@ -181,14 +182,33 @@ public class TranslationRequestServiceBulkTests : IDisposable
         _embedded.Verify(
             service => service.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        _locator.Verify(locator => locator.FindMkv(It.IsAny<IMedia>()), Times.Never);
         _locator.Verify(locator => locator.FindMkv(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateBulkRequest_UsesMediaLocatorNotPathStem()
+    {
+        SetupSidecars(Sidecar(EnSidecar, "en"));
+        _locator.Setup(locator => locator.FindMkv(It.IsAny<IMedia>())).Returns((string?)null);
+        _locator.Setup(locator => locator.FindMkv(_movie.Path, _movie.FileName)).Returns(MkvPath);
+
+        await _service.CreateBulkRequest(Bulk("zh"));
+
+        var request = Assert.Single(_db.TranslationRequests);
+        Assert.Equal(EnSidecar, request.SubtitleToTranslate);
+        _locator.Verify(locator => locator.FindMkv(It.Is<IMedia>(media => media.Id == _movie.Id)), Times.Once);
+        _locator.Verify(locator => locator.FindMkv(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _embedded.Verify(
+            service => service.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
     public async Task CreateBulkRequest_MissingTarget_CreatesRequest()
     {
         SetupSidecars(Sidecar(EnSidecar, "en"));
-        _locator.Setup(locator => locator.FindMkv(_movie.Path, _movie.FileName)).Returns(MkvPath);
+        SetupFindMkv(MkvPath);
         _embedded.Setup(service => service.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(EmbeddedSubtitleProbeResult.Success([], []));
 
@@ -205,6 +225,12 @@ public class TranslationRequestServiceBulkTests : IDisposable
         TargetLanguage = target,
         MediaType = MediaType.Movie
     };
+
+    private void SetupFindMkv(string? path)
+    {
+        _locator.Setup(locator => locator.FindMkv(It.Is<IMedia>(media => media.Id == _movie.Id)))
+            .Returns(path);
+    }
 
     private void SetupSidecars(params Subtitles[] sidecars)
     {
