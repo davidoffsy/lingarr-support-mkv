@@ -10,17 +10,22 @@ public class OpenCodeGoHeadersTests
     [InlineData("https://opencode.ai/zen/go/v1/")]
     [InlineData("https://opencode.ai/zen/go/v1/chat/completions")]
     [InlineData("https://opencode.ai/zen/go")]
+    [InlineData("https://opencode.ai/zen/v1")]
+    [InlineData("https://opencode.ai/zen/google/v1")]
+    [InlineData("https://opencode.ai/inference/go/v1")]
+    [InlineData("https://opencode.ai/inference/go/v1/chat/completions")]
+    [InlineData("https://opencode.ai/inference/go/openai/v1/chat/completions")]
+    [InlineData("https://opencode.ai/inference/openai/v1/chat/completions")]
+    [InlineData("https://opencode.ai/inference/anthropic/v1/messages")]
+    [InlineData("https://opencode.ai/v1/chat/completions")]
     [InlineData("https://api.opencode.ai/zen/go/v1/chat/completions")]
     [InlineData("https://OPENCODE.AI/ZEN/GO/v1")]
-    public void Matches_OpenCodeGoUrls(string url)
+    public void Matches_OpenCodeAiUrls(string url)
     {
         Assert.True(OpenCodeGoHeaders.Matches(url));
     }
 
     [Theory]
-    [InlineData("https://opencode.ai/zen/v1")]
-    [InlineData("https://opencode.ai/zen/v1/chat/completions")]
-    [InlineData("https://opencode.ai/zen/google/v1")]
     [InlineData("http://ollama:11434/v1/chat/completions")]
     [InlineData("https://openrouter.ai/api/v1/chat/completions")]
     [InlineData("https://not-opencode.ai/zen/go/v1")]
