@@ -42,6 +42,7 @@ public class CustomService : BaseLanguageService, ITranslationService, IBatchTra
     private TimeSpan _retryDelay;
     private int _retryDelayMultiplier;
     private TimeSpan _requestTimeout;
+    private readonly string _sessionId = OpenCodeGoHeaders.NewSessionId();
 
     /// <inheritdoc />
     public override string? ModelName => _model;
@@ -64,12 +65,14 @@ public class CustomService : BaseLanguageService, ITranslationService, IBatchTra
             httpClient,
             requestTemplateService,
             logger,
-            "Custom");
+            "Custom",
+            _sessionId);
         _responsesClient = new OpenAiResponsesClient(
             httpClient,
             requestTemplateService,
             logger,
-            "Custom");
+            "Custom",
+            _sessionId);
         _messagesClient = new AnthropicMessagesClient(
             httpClient,
             requestTemplateService,

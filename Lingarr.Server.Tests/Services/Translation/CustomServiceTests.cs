@@ -16,6 +16,7 @@ using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Services;
 using Lingarr.Server.Services.Translation;
 using Lingarr.Server.Services.Translation.Batch;
+using Lingarr.Server.Services.Translation.OpenAiCompatible;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -119,6 +120,22 @@ public class CustomServiceTests
             Times.AtLeastOnce());
         VerifyAuthorization("Bearer " + apiKey, Times.Once());
         VerifyHeaderAbsent("x-api-key");
+    }
+
+    [Fact]
+    public async Task TranslateAsync_OpenCodeGo_SendsStableSession()
+    {
+        UseSettings("https://opencode.ai/zen/go/v1");
+        var captured = CaptureRequests(() => ChatResponse("Hola"));
+
+        await _service.TranslateAsync("Hello", "en", "es", null, null, CancellationToken.None);
+        await _service.TranslateAsync("World", "en", "es", null, null, CancellationToken.None);
+
+        Assert.Equal(2, captured.Count);
+        var firstSession = HeaderValue(captured[0], OpenCodeGoHeaders.SessionHeaderName);
+        var secondSession = HeaderValue(captured[1], OpenCodeGoHeaders.SessionHeaderName);
+        Assert.False(string.IsNullOrWhiteSpace(firstSession));
+        Assert.Equal(firstSession, secondSession);
     }
 
     [Fact]
@@ -378,6 +395,87 @@ public class CustomServiceTests
         Assert.Equal("Hola", result[1]);
         Assert.Equal("Mundo", result[2]);
         VerifyRequestsSent(1);
+    }
+
+    [Fact]
+    public async Task TranslateBatchAsync_JsonSchemaRejectedThreeTimes_DowngradesToJsonObject()
+    {
+        UseSettings(BaseEndpoint);
+        var bodies = CaptureRequestBodiesAndRespond(body =>
+            body.Contains("\"json_schema\"", StringComparison.Ordinal)
+                ? BadRequestResponse("This response_format type is unavailable now")
+                : ChatResponse(body.Contains("\"json_object\"", StringComparison.Ordinal)
+                    ? "{\"translations\":" + ValidJson + "}"
+                    : ValidJson));
+
+        for (var i = 0; i < 4; i++)
+        {
+            var result = await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+            Assert.Equal("Hola", result[1]);
+        }
+
+        // Three batches use json_schema and fall back to plain JSON; the fourth uses json_object.
+        Assert.Equal(7, bodies.Count);
+        using var lastRequest = JsonDocument.Parse(bodies[^1]);
+        Assert.Equal(
+            "json_object",
+            lastRequest.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+        Assert.Contains(
+            "JSON object",
+            lastRequest.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.DoesNotContain(
+            "Return only a JSON array",
+            lastRequest.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task TranslateBatchAsync_OneJsonSchemaRejection_KeepsJsonSchema()
+    {
+        UseSettings(BaseEndpoint);
+        var rejected = false;
+        var bodies = CaptureRequestBodiesAndRespond(body =>
+        {
+            var usesJsonSchema = body.Contains("\"json_schema\"", StringComparison.Ordinal);
+            if (usesJsonSchema && !rejected)
+            {
+                rejected = true;
+                return BadRequestResponse("This response_format type is unavailable now");
+            }
+
+            return ChatResponse(usesJsonSchema ? "{\"translations\":" + ValidJson + "}" : ValidJson);
+        });
+
+        await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+        await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+
+        // First batch: schema rejected, plain fallback succeeds. Second batch: schema is tried again,
+        // because a single rejection is not enough evidence to downgrade the rest of the run.
+        Assert.Equal(3, bodies.Count);
+        Assert.Contains("\"json_schema\"", bodies[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TranslateBatchAsync_JsonObjectRejected_DisablesResponseFormat()
+    {
+        UseSettings(BaseEndpoint);
+        var bodies = CaptureRequestBodiesAndRespond(body =>
+            body.Contains("\"response_format\"", StringComparison.Ordinal)
+                ? BadRequestResponse("This response_format type is unavailable now")
+                : ChatResponse(ValidJson));
+
+        for (var i = 0; i < 5; i++)
+        {
+            var result = await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+            Assert.Equal("Hola", result[1]);
+        }
+
+        // Three json_schema batches, one json_object batch, then a plain request without the field.
+        Assert.Equal(9, bodies.Count);
+        using var lastRequest = JsonDocument.Parse(bodies[^1]);
+        Assert.False(lastRequest.RootElement.TryGetProperty("response_format", out _));
+        Assert.Contains(
+            "JSON array",
+            lastRequest.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
     }
 
     [Fact]
@@ -1088,6 +1186,60 @@ public class CustomServiceTests
         {
             sequence = sequence.ReturnsAsync(response);
         }
+    }
+
+    private static HttpResponseMessage BadRequestResponse(string message) => new()
+    {
+        StatusCode = HttpStatusCode.BadRequest,
+        Content = new StringContent(
+            JsonSerializer.Serialize(new { error = new { message } }),
+            Encoding.UTF8,
+            "application/json")
+    };
+
+    private List<HttpRequestMessage> CaptureRequests(Func<HttpResponseMessage> responseFactory)
+    {
+        var captured = new List<HttpRequestMessage>();
+        _httpMessageHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => captured.Add(request))
+            .Returns(() => Task.FromResult(responseFactory()));
+        return captured;
+    }
+
+    private List<string> CaptureRequestBodiesAndRespond(Func<string, HttpResponseMessage> responseFactory)
+    {
+        var captured = new List<string>();
+        _httpMessageHandlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
+                captured.Add(body);
+                return Task.FromResult(responseFactory(body));
+            });
+        return captured;
+    }
+
+    private static string? HeaderValue(HttpRequestMessage request, string name)
+    {
+        if (!request.Headers.TryGetValues(name, out var values))
+        {
+            return null;
+        }
+
+        foreach (var value in values)
+        {
+            return value;
+        }
+
+        return null;
     }
 
     private void VerifyRequestsSent(int count)

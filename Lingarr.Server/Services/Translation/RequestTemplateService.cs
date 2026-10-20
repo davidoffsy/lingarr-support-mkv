@@ -93,6 +93,18 @@ public class RequestTemplateService : IRequestTemplateService
         return body.ToJsonString();
     }
 
+    /// <inheritdoc />
+    public string RemoveRequestField(string requestBody, string field)
+    {
+        if (JsonNode.Parse(requestBody) is not JsonObject body)
+        {
+            throw new JsonException("Request body is not a JSON object.");
+        }
+
+        body.Remove(field);
+        return body.ToJsonString();
+    }
+
     private static void MergeFields(JsonObject target, JsonObject fields)
     {
         foreach (var field in fields)

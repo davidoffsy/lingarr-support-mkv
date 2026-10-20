@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Lingarr.Contracts.Exceptions;
 using Lingarr.Server.Exceptions;
@@ -19,6 +20,7 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
     private readonly ILogger _logger;
     private readonly string _serviceLabel;
     private readonly string? _sessionId;
+    private readonly BatchResponseFormatPolicy _responseFormatPolicy = new();
 
     /// <param name="httpClient">
     /// Shared client. The caller owns the per-request timeout through the cancellation token; this
@@ -63,9 +65,10 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
     }
 
     /// <summary>
-    /// Translates a batch in a single request. Tries structured output first and falls
-    /// back to plain JSON extraction because not every OpenAI-compatible gateway supports
-    /// <c>response_format</c>. Unparsable responses raise <see cref="TranslationParseException"/>.
+    /// Translates a batch in a single request. Uses the best response format the provider has
+    /// accepted so far: <c>json_schema</c>, then <c>json_object</c>, then no <c>response_format</c>.
+    /// Repeated format rejections downgrade the mode for the rest of this client's lifetime.
+    /// Unparsable responses raise <see cref="TranslationParseException"/>.
     /// </summary>
     public async Task<Dictionary<int, string>> CompleteBatchAsync(
         string endpoint,
@@ -81,26 +84,63 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         var bodyJson = _requestTemplateService.BuildRequestBody(requestTemplate, replacements);
         NonStreamingPolicy.EnsureRequestIsNotStreaming(bodyJson, _serviceLabel);
 
+        var mode = _responseFormatPolicy.Mode;
+        if (mode == BatchResponseFormatMode.None)
+        {
+            return await CompleteBatchWithoutResponseFormatAsync(
+                endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
+        }
+
         try
         {
-            return await CompleteBatchWithStructuredOutputAsync(
+            var result = await CompleteBatchWithResponseFormatAsync(
+                mode, endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
+            _responseFormatPolicy.RecordSuccess();
+            return result;
+        }
+        // A gateway can reject response_format while accepting the same body without it. Only that
+        // specific failure is allowed to downgrade the format for later batches; the plain request
+        // must succeed first, because otherwise the format was not the only problem.
+        catch (TranslationResponseFormatException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "{ServiceLabel} rejected the {ResponseFormat} response format; retrying this batch as plain JSON.",
+                _serviceLabel,
+                Describe(mode));
+
+            var result = await CompleteBatchWithoutResponseFormatAsync(
                 endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
+
+            var downgradedTo = _responseFormatPolicy.RecordFormatRejection(mode);
+            if (downgradedTo != null)
+            {
+                _logger.LogWarning(
+                    "{ServiceLabel} downgraded its batch response format to {ResponseFormat} for the rest of this translation.",
+                    _serviceLabel,
+                    Describe(downgradedTo.Value));
+            }
+
+            return result;
         }
         // Fall back to plain JSON only for failures that a different request shape can fix. Cancellation
         // must stay cancellation, credentials must stay credentials (the chain skips the provider), a
         // rate limit must not be re-sent immediately as a second request, and a terminal response
         // (refusal, failed payload, event stream) must not be retried as a different shape.
-        catch (Exception ex) when (ex is not (OperationCanceledException
-            or TranslationAuthenticationException
-            or TranslationConfigurationException
-            or TranslationResponseException
-            or TranslationUnusableResponseException))
+        catch (Exception ex) when (CanFallBackToJsonParsing(ex))
         {
             _logger.LogWarning(ex, "Structured output failed, falling back to JSON parsing");
-            return await CompleteBatchWithJsonParsingAsync(
+            return await CompleteBatchWithoutResponseFormatAsync(
                 endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
         }
     }
+
+    private static bool CanFallBackToJsonParsing(Exception exception) =>
+        exception is not (OperationCanceledException
+            or TranslationAuthenticationException
+            or TranslationConfigurationException
+            or TranslationResponseException
+            or TranslationUnusableResponseException);
 
     private async Task<HttpResponseMessage> PostChatRequestAsync(
         string endpoint,
@@ -164,7 +204,8 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         return responseBody;
     }
 
-    private async Task<Dictionary<int, string>> CompleteBatchWithStructuredOutputAsync(
+    private async Task<Dictionary<int, string>> CompleteBatchWithResponseFormatAsync(
+        BatchResponseFormatMode mode,
         string endpoint,
         string? apiKey,
         string requestTemplate,
@@ -173,57 +214,32 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         int maxTokens,
         CancellationToken cancellationToken)
     {
-        var responseFormat = new
-        {
-            type = "json_schema",
-            json_schema = new
-            {
-                name = "batch_translation_response",
-                strict = true,
-                schema = new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        translations = new
-                        {
-                            type = "array",
-                            items = new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    position = new
-                                    {
-                                        type = "integer",
-                                        description = "Position number of the subtitle item"
-                                    },
-                                    line = new
-                                    {
-                                        type = "string",
-                                        description = "Translated subtitle text"
-                                    }
-                                },
-                                required = new[] { "position", "line" },
-                                additionalProperties = false
-                            }
-                        }
-                    },
-                    required = new[] { "translations" },
-                    additionalProperties = false
-                }
-            }
-        };
-
-        var bodyJson = _requestTemplateService.BuildRequestBody(requestTemplate, replacements);
-        bodyJson = _requestTemplateService.SetRequestFields(bodyJson, new Dictionary<string, object?>
-        {
-            ["response_format"] = responseFormat
-        });
+        var bodyJson = BuildBatchBody(requestTemplate, replacements, mode);
 
         using var response = await PostChatRequestAsync(endpoint, apiKey, bodyJson, thinking, maxTokens, cancellationToken);
+
+        // A 400/422 can describe any invalid request, not just unsupported response formats.
+        // Only an explicit format rejection can change the capability policy; all other errors
+        // retain their usual HTTP classification (and may still use the existing plain fallback).
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (ResponseFormatRejection.IsUnsupported(errorBody))
+            {
+                _logger.LogError(
+                    "{ServiceLabel} {ResponseFormat} batch request to {Endpoint} failed with status {StatusCode}: {ResponseContent}",
+                    _serviceLabel,
+                    Describe(mode),
+                    endpoint,
+                    response.StatusCode,
+                    errorBody);
+                throw new TranslationResponseFormatException(
+                    $"{_serviceLabel} {Describe(mode)} batch request failed with status {response.StatusCode}: {errorBody}");
+            }
+        }
+
         var responseBody = await ReadSuccessfulBodyAsync(
-            endpoint, response, "structured output batch request", cancellationToken);
+            endpoint, response, $"{Describe(mode)} batch request", cancellationToken);
         var chatResponse = JsonSerializer.Deserialize<ChatResponse>(responseBody);
         if (chatResponse?.Choices == null || chatResponse.Choices.Count == 0)
         {
@@ -234,7 +250,7 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         return BatchJsonParser.ParseStructuredWrapper(translatedJson, _logger);
     }
 
-    private async Task<Dictionary<int, string>> CompleteBatchWithJsonParsingAsync(
+    private async Task<Dictionary<int, string>> CompleteBatchWithoutResponseFormatAsync(
         string endpoint,
         string? apiKey,
         string requestTemplate,
@@ -243,7 +259,7 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         int maxTokens,
         CancellationToken cancellationToken)
     {
-        var bodyJson = _requestTemplateService.BuildRequestBody(requestTemplate, replacements);
+        var bodyJson = BuildBatchBody(requestTemplate, replacements, BatchResponseFormatMode.None);
 
         using var response = await PostChatRequestAsync(endpoint, apiKey, bodyJson, thinking, maxTokens, cancellationToken);
         var responseBody = await ReadSuccessfulBodyAsync(
@@ -258,4 +274,102 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         var translatedJson = chatResponse.Choices[0].Message.Content;
         return BatchJsonParser.ParseJsonArray(translatedJson, _logger);
     }
+
+    private string BuildBatchBody(
+        string requestTemplate,
+        Dictionary<string, string> replacements,
+        BatchResponseFormatMode mode)
+    {
+        var effectiveReplacements = replacements;
+        if (mode != BatchResponseFormatMode.JsonSchema)
+        {
+            // json_object requires a top-level object, matching the schema mode's wrapper. Only
+            // the fallback without response_format requests a bare array.
+            effectiveReplacements = new Dictionary<string, string>(replacements);
+            effectiveReplacements["systemPrompt"] =
+                (effectiveReplacements.GetValueOrDefault("systemPrompt") ?? string.Empty)
+                + (mode == BatchResponseFormatMode.JsonObject
+                    ? BatchJsonObjectInstruction
+                    : BatchJsonArrayInstruction);
+        }
+
+        var bodyJson = _requestTemplateService.BuildRequestBody(requestTemplate, effectiveReplacements);
+        if (mode == BatchResponseFormatMode.JsonSchema)
+        {
+            // Keep the historical merge behaviour so a template's schema customizations survive.
+            return _requestTemplateService.SetRequestFields(bodyJson, new Dictionary<string, object?>
+            {
+                ["response_format"] = CreateJsonSchemaResponseFormat()
+            });
+        }
+
+        // json_object must not inherit stale json_schema fields from a customized template.
+        bodyJson = _requestTemplateService.RemoveRequestField(bodyJson, "response_format");
+        if (mode == BatchResponseFormatMode.None)
+        {
+            return bodyJson;
+        }
+
+        return _requestTemplateService.SetRequestFields(bodyJson, new Dictionary<string, object?>
+        {
+            ["response_format"] = new { type = "json_object" }
+        });
+    }
+
+    private static object CreateJsonSchemaResponseFormat() => new
+    {
+        type = "json_schema",
+        json_schema = new
+        {
+            name = "batch_translation_response",
+            strict = true,
+            schema = new
+            {
+                type = "object",
+                properties = new
+                {
+                    translations = new
+                    {
+                        type = "array",
+                        items = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                position = new
+                                {
+                                    type = "integer",
+                                    description = "Position number of the subtitle item"
+                                },
+                                line = new
+                                {
+                                    type = "string",
+                                    description = "Translated subtitle text"
+                                }
+                            },
+                            required = new[] { "position", "line" },
+                            additionalProperties = false
+                        }
+                    }
+                },
+                required = new[] { "translations" },
+                additionalProperties = false
+            }
+        }
+    };
+
+    private static string Describe(BatchResponseFormatMode mode) => mode switch
+    {
+        BatchResponseFormatMode.JsonSchema => "json_schema",
+        BatchResponseFormatMode.JsonObject => "json_object",
+        _ => "plain JSON"
+    };
+
+    private const string BatchJsonObjectInstruction =
+        "\n\nReturn only a JSON object with a \"translations\" array of objects with \"position\" and \"line\" fields. " +
+        "Do not add commentary. Example: {\"translations\":[{\"position\": 1, \"line\": \"translated text\"}]}";
+
+    private const string BatchJsonArrayInstruction =
+        "\n\nReturn only a JSON array of objects with \"position\" and \"line\" fields. " +
+        "Do not add commentary. Example: [{\"position\": 1, \"line\": \"translated text\"}]";
 }

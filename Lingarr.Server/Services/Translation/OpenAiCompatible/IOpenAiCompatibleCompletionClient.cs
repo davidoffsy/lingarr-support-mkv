@@ -20,9 +20,10 @@ public interface IOpenAiCompatibleCompletionClient
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Translates a batch in a single request. Tries structured output first and falls back to
-    /// plain JSON extraction; the returned dictionary holds exactly the positions the model
-    /// answered with, so callers can retry the missing ones.
+    /// Translates a batch in a single request. Uses the best response format the provider accepts
+    /// (json_schema, then json_object, then no response_format) and extracts the JSON payload; the
+    /// returned dictionary holds exactly the positions the model answered with, so callers can
+    /// retry the missing ones.
     /// </summary>
     Task<Dictionary<int, string>> CompleteBatchAsync(
         string endpoint,

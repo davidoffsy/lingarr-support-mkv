@@ -32,4 +32,10 @@ public interface IRequestTemplateService
     /// Sets provider-required fields on a rendered request body, merging nested objects so template customizations are preserved.
     /// </summary>
     string SetRequestFields(string requestBody, Dictionary<string, object?> fields);
+
+    /// <summary>
+    /// Removes a top-level field from a rendered request body. Used when a provider rejects a field
+    /// and the same request has to be sent again without it.
+    /// </summary>
+    string RemoveRequestField(string requestBody, string field);
 }
