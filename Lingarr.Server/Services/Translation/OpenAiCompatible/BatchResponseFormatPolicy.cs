@@ -41,6 +41,18 @@ public sealed class BatchResponseFormatPolicy
         }
     }
 
+    /// <summary>Number of consecutive <c>json_schema</c> rejections recorded so far.</summary>
+    public int ConsecutiveRejections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _consecutiveRejections;
+            }
+        }
+    }
+
     /// <summary>Clears the consecutive rejection count after a batch succeeded.</summary>
     public void RecordSuccess()
     {

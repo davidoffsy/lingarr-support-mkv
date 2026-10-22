@@ -101,13 +101,9 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
         // A gateway can reject response_format while accepting the same body without it. Only that
         // specific failure is allowed to downgrade the format for later batches; the plain request
         // must succeed first, because otherwise the format was not the only problem.
-        catch (TranslationResponseFormatException ex)
+        catch (TranslationResponseFormatException)
         {
-            _logger.LogWarning(
-                ex,
-                "{ServiceLabel} rejected the {ResponseFormat} response format; retrying this batch as plain JSON.",
-                _serviceLabel,
-                Describe(mode));
+            LogFormatRejection(mode);
 
             var result = await CompleteBatchWithoutResponseFormatAsync(
                 endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
@@ -116,7 +112,8 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
             if (downgradedTo != null)
             {
                 _logger.LogWarning(
-                    "{ServiceLabel} downgraded its batch response format to {ResponseFormat} for the rest of this translation.",
+                    "{ServiceLabel} downgraded its batch response format to {ResponseFormat} after repeated rejections; " +
+                    "later batches in this translation will use it.",
                     _serviceLabel,
                     Describe(downgradedTo.Value));
             }
@@ -133,6 +130,41 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
             return await CompleteBatchWithoutResponseFormatAsync(
                 endpoint, apiKey, requestTemplate, replacements, thinking, maxTokens, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// A rejected response format is a recoverable capability probe, not a failed translation.
+    /// The first rejection of a streak is visible as a warning; repeats stay at debug so a gateway
+    /// that keeps rejecting the format does not flood the log before the policy downgrades.
+    /// </summary>
+    private void LogFormatRejection(BatchResponseFormatMode mode)
+    {
+        var attempt = _responseFormatPolicy.ConsecutiveRejections + 1;
+        if (mode == BatchResponseFormatMode.JsonSchema)
+        {
+            if (attempt == 1)
+            {
+                _logger.LogWarning(
+                    "{ServiceLabel} rejected the json_schema response format; retrying this batch as plain JSON. " +
+                    "Later batches keep trying json_schema and switch to json_object after {Limit} consecutive rejections.",
+                    _serviceLabel,
+                    BatchResponseFormatPolicy.JsonSchemaRejectionLimit);
+                return;
+            }
+
+            _logger.LogDebug(
+                "{ServiceLabel} rejected the json_schema response format again ({Attempt}/{Limit}); " +
+                "retrying this batch as plain JSON.",
+                _serviceLabel,
+                attempt,
+                BatchResponseFormatPolicy.JsonSchemaRejectionLimit);
+            return;
+        }
+
+        _logger.LogDebug(
+            "{ServiceLabel} rejected the {ResponseFormat} response format; retrying this batch as plain JSON.",
+            _serviceLabel,
+            Describe(mode));
     }
 
     private static bool CanFallBackToJsonParsing(Exception exception) =>
@@ -226,7 +258,7 @@ public sealed class OpenAiChatCompletionsClient : IOpenAiCompatibleCompletionCli
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             if (ResponseFormatRejection.IsUnsupported(errorBody))
             {
-                _logger.LogError(
+                _logger.LogDebug(
                     "{ServiceLabel} {ResponseFormat} batch request to {Endpoint} failed with status {StatusCode}: {ResponseContent}",
                     _serviceLabel,
                     Describe(mode),

@@ -186,6 +186,32 @@ public class OpenAiChatCompletionsClientTests
         }, bodies.Skip(6).Select(GetFormat));
     }
 
+    [Fact]
+    public async Task CompleteBatchAsync_FormatProbe_LogsFirstRejectionAsWarningNotError()
+    {
+        var logger = new RecordingLogger();
+        var client = new OpenAiChatCompletionsClient(
+            new HttpClient(_httpMessageHandlerMock.Object),
+            new RequestTemplateService(),
+            logger,
+            "Custom");
+        CaptureRequests(body => GetFormat(body) == "json_schema"
+            ? HttpError(HttpStatusCode.BadRequest, UnsupportedFormat)
+            : ChatOk(ValidJson));
+
+        for (var i = 0; i < 2; i++)
+        {
+            await client.CompleteBatchAsync(
+                Endpoint, null, _defaultTemplate, _replacements, AiThinkingMode.Auto, 0,
+                CancellationToken.None);
+        }
+
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Single(
+            logger.Entries,
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("json_schema"));
+    }
+
     private async Task MoveToJsonObjectAsync()
     {
         for (var i = 0; i < BatchResponseFormatPolicy.JsonSchemaRejectionLimit; i++)
@@ -235,5 +261,22 @@ public class OpenAiChatCompletionsClientTests
                 return responseFactory(document.RootElement);
             });
         return captured;
+    }
+
+    private sealed class RecordingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 }
