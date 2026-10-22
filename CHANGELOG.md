@@ -4,6 +4,36 @@ Release notes for this community fork of [Lingarr](https://github.com/lingarr-tr
 
 Fork versioning is independent of upstream and starts at **0.1.0**, based on upstream [Lingarr 1.4.0](https://github.com/lingarr-translate/lingarr/releases/tag/1.4.0).
 
+## 0.2.1 – 2026-10-22
+
+11 commits since 0.2.0. This release adds optional bilingual ASS sidecars, skips translation when the target subtitle already exists, and makes Custom/OpenCode batch translation more resilient.
+
+### Highlights
+
+- **Bilingual ASS sidecar.** When **Also export bilingual ASS** is enabled, a completed translation also writes a `.bilingual.ass` sidecar next to the monolingual target. Subtitle discovery ignores these files, and proofread or line edits regenerate them without changing the existing SRT/ASS write path.
+- **Already-translated detection.** Arr webhooks, scheduled jobs, bulk translation and the Plex five-star trigger now treat an existing sidecar or a full embedded target track (including PGS) as done. Forced-only tracks still translate. **Scan embedded subtitles** continues to control whether embedded tracks may be used as a source.
+- **Adaptive batch response format.** Custom over OpenAI Chat Completions starts with `json_schema`, retries a rejected batch as plain JSON, and switches to `json_object` after three consecutive format rejections; a rejected `json_object` disables `response_format` for the rest of the run. Only explicit format rejections change the policy, so context-length and other request errors keep their normal handling.
+- **Stable OpenCode session.** `x-opencode-session` is now sent with a stable value for the whole translation run on all three Custom protocols, including Anthropic Messages, so OpenCode Go can pin routing and prompt caching to one backend.
+
+### Improvements
+
+- Known non-MKV videos no longer match a neighboring MKV with the same stem when extracting embedded subtitles; bulk translation uses the same guard.
+- Target-language detection matches region codes (`zh-CN` against a `zh` track) and skips `ffprobe` when sidecar state and the MKV fingerprint prove nothing changed.
+- New setting **Strip trailing full-width period** removes a single `。` at the end of each cue when writing a subtitle file. Off by default; punctuation inside a line and consecutive periods are unchanged.
+- Bilingual ASS output uses a light-yellow source color and collapses extra lines; the existing monolingual SRT/ASS path is unchanged.
+- Recoverable batch format probes log the first rejection of a streak as a warning and repeats at debug, so capability probing no longer looks like a failed translation. Genuine failures remain errors.
+
+### Docker
+
+Multi-arch images (`linux/amd64`, `linux/arm64`):
+
+```text
+ghcr.io/davidoffsy/lingarr-support-mkv:0.2.1
+ghcr.io/davidoffsy/lingarr-support-mkv:latest
+```
+
+Development builds from `main` stay on the `main` tag and report `0.0.0-dev`.
+
 ## 0.2.0 – 2026-10-17
 
 24 commits since 0.1.0. This release adds a **Custom AI provider** with three protocols, **per-model translation chains** with source attribution, the **Plex five-star trigger** with Plex subtitle streams as a source, **Arr webhook tokens**, and a new **subtitle source ranking**.
