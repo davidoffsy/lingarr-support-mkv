@@ -77,7 +77,8 @@ public class CustomService : BaseLanguageService, ITranslationService, IBatchTra
             httpClient,
             requestTemplateService,
             logger,
-            "Custom");
+            "Custom",
+            _sessionId);
     }
 
     /// <summary>

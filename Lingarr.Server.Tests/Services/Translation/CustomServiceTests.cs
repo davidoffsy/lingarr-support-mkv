@@ -139,6 +139,22 @@ public class CustomServiceTests
     }
 
     [Fact]
+    public async Task TranslateAsync_MessagesProtocol_OpenCodeGo_SendsStableSession()
+    {
+        UseSettings("https://opencode.ai/zen/go/v1", protocol: "anthropic_messages");
+        var captured = CaptureRequests(() => MessagesResponse("Hola"));
+
+        await _service.TranslateAsync("Hello", "en", "es", null, null, CancellationToken.None);
+        await _service.TranslateAsync("World", "en", "es", null, null, CancellationToken.None);
+
+        Assert.Equal(2, captured.Count);
+        var firstSession = HeaderValue(captured[0], OpenCodeGoHeaders.SessionHeaderName);
+        var secondSession = HeaderValue(captured[1], OpenCodeGoHeaders.SessionHeaderName);
+        Assert.False(string.IsNullOrWhiteSpace(firstSession));
+        Assert.Equal(firstSession, secondSession);
+    }
+
+    [Fact]
     public async Task TranslateAsync_DoesNotReadLocalAiSettings()
     {
         UseSettings(BaseEndpoint);

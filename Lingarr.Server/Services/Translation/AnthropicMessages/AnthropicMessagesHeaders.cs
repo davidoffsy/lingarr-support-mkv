@@ -1,4 +1,5 @@
 using Lingarr.Core;
+using Lingarr.Server.Services.Translation.OpenAiCompatible;
 
 namespace Lingarr.Server.Services.Translation.AnthropicMessages;
 
@@ -8,9 +9,21 @@ namespace Lingarr.Server.Services.Translation.AnthropicMessages;
 /// </summary>
 internal static class AnthropicMessagesHeaders
 {
-    public static void Apply(HttpRequestMessage request, string? apiKey, string version)
+    public static void Apply(
+        HttpRequestMessage request,
+        string? apiKey,
+        string version,
+        string? sessionId = null)
     {
         request.Headers.TryAddWithoutValidation("User-Agent", $"{LingarrVersion.Name}/{LingarrVersion.Number}");
+
+        if (OpenCodeGoHeaders.Matches(request.RequestUri))
+        {
+            var value = string.IsNullOrWhiteSpace(sessionId)
+                ? OpenCodeGoHeaders.NewSessionId()
+                : sessionId.Trim();
+            request.Headers.TryAddWithoutValidation(OpenCodeGoHeaders.SessionHeaderName, value);
+        }
 
         var key = apiKey?.Trim();
         if (!string.IsNullOrEmpty(key))

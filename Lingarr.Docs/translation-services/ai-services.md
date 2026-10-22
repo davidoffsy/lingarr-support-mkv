@@ -234,6 +234,8 @@ As everywhere else, each variable also accepts the `_FILE` variant, see [Configu
 - `openai_responses` posts the same prompts as `input` messages to the responses endpoint and reads `output[].content[].text`; batch jobs request structured output through `text.format`. A response only counts as success when it completed with text — refusals, `incomplete`/`failed` responses, non-final states and empty output fail the candidate instead of being written back as a translation.
 - `anthropic_messages` posts to the Messages endpoint. The system prompt is a top-level `system` field, not a chat `system` role, and `max_tokens` is required. The reply is read from `content[]` text blocks; thinking blocks are ignored. Batch jobs ask for a `tool_use` block named `record_translation_batch` and, when the gateway does not return one, fall back to a JSON array in the text. A refusal (`stop_reason: refusal`), a truncation (`stop_reason: max_tokens`), and an empty body fail the candidate. Official Anthropic is unchanged and still accepts partial text.
 
+All three protocols send `x-opencode-session` on `*.opencode.ai` endpoints. Custom keeps the value stable for one translation run, so OpenCode Go can pin routing and prompt caching to one backend.
+
 **Addresses.** The endpoint must be an absolute `http` or `https` URL; other schemes are rejected as a configuration error. Custom looks at what you enter and resolves the URL of the selected protocol from it:
 
 - a base URL such as `http://localhost:8000` becomes `http://localhost:8000/v1/chat/completions`;

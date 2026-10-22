@@ -21,6 +21,7 @@ public sealed class AnthropicMessagesClient
     private readonly IRequestTemplateService _requestTemplateService;
     private readonly ILogger _logger;
     private readonly string _serviceLabel;
+    private readonly string? _sessionId;
 
     /// <param name="httpClient">
     /// Shared client. Headers are set on each request, never on
@@ -29,16 +30,19 @@ public sealed class AnthropicMessagesClient
     /// <param name="requestTemplateService">Builds the JSON body from the provider template.</param>
     /// <param name="logger">Logs request failures without including the API key.</param>
     /// <param name="serviceLabel">Provider name used in errors and logs.</param>
+    /// <param name="sessionId">Stable session id for OpenCode Go routing; generated per request when null.</param>
     public AnthropicMessagesClient(
         HttpClient httpClient,
         IRequestTemplateService requestTemplateService,
         ILogger logger,
-        string serviceLabel)
+        string serviceLabel,
+        string? sessionId = null)
     {
         _httpClient = httpClient;
         _requestTemplateService = requestTemplateService;
         _logger = logger;
         _serviceLabel = serviceLabel;
+        _sessionId = sessionId;
     }
 
     /// <summary>
@@ -212,7 +216,7 @@ public sealed class AnthropicMessagesClient
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
 
-        AnthropicMessagesHeaders.Apply(request, apiKey, version);
+        AnthropicMessagesHeaders.Apply(request, apiKey, version, _sessionId);
         return await _httpClient.SendAsync(request, cancellationToken);
     }
 
