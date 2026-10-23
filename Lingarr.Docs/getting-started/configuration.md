@@ -75,7 +75,7 @@ These environment variables are an optional **headless / reinstall fallback** on
 
 Do **not** put `PLEX_TOKEN` or Lingarr's `api_key` into the Plex Webhooks URL. The webhook secret is generated in the UI and appears only as the query `token=` on `POST /api/webhook/plex`.
 
-Keep **Remove language tag** off so Plex can pick `{stem}.{lang}.srt`. If Plex paths differ from Radarr/Sonarr, add Movie / Show mappings at `/settings/mapping`. See [Plex](/getting-started/plex) for the full five-star setup guide.
+Keep **Remove language tag** off so Plex can pick `{stem}.{lang}.srt`. If Plex paths differ from Radarr/Sonarr, add Movie / Show mappings at `/settings/mapping`. Five-star ratings work for movies, episodes, and seasons. Titles that are not in Radarr/Sonarr still translate when Lingarr can read the mapped file; they are not added to the Movies or Shows lists. See [Plex](/getting-started/plex) for the full five-star setup guide.
 
 ## Authentication
 

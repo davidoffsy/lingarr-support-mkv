@@ -25,14 +25,18 @@ public static class PlexWebhookEventFilter
         }
 
         var type = payload.Metadata?.Type;
-        if (!string.Equals(type, "movie", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(type, "episode", StringComparison.OrdinalIgnoreCase))
+        if (!IsSupportedType(type))
         {
-            reason = $"metadata type '{type}' is not movie or episode";
+            reason = $"metadata type '{type}' is not movie, episode, or season";
             return true;
         }
 
         reason = string.Empty;
         return false;
     }
+
+    private static bool IsSupportedType(string? type) =>
+        string.Equals(type, "movie", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "episode", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "season", StringComparison.OrdinalIgnoreCase);
 }

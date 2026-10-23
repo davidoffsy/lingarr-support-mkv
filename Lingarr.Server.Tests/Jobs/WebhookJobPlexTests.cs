@@ -24,7 +24,7 @@ public class WebhookJobPlexTests
     private readonly Mock<IMediaService> _media = new();
     private readonly Mock<IMediaSubtitleProcessor> _processor = new();
     private readonly Mock<IPlexRaterFilter> _rater = new();
-    private readonly Mock<IPlexMediaResolver> _resolver = new();
+    private readonly Mock<IPlexSeasonEpisodeLister> _seasons = new();
     private readonly Mock<IBackgroundJobClient> _jobs = new();
     private readonly Mock<ISettingService> _settings = new();
     private readonly PlexWebhookParser _parser = new();
@@ -41,15 +41,15 @@ public class WebhookJobPlexTests
             .ReturnsAsync("10");
         _rater.Setup(r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        _resolver.Setup(r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(PlexMediaResolveResult.Miss("not in Lingarr library"));
+        _seasons.Setup(l => l.ListEpisodesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
         _job = new WebhookJob(
             db,
             _media.Object,
             _processor.Object,
             _parser,
             _rater.Object,
-            _resolver.Object,
+            _seasons.Object,
             _jobs.Object,
             _settings.Object,
             NullLogger<WebhookJob>.Instance);
@@ -62,9 +62,6 @@ public class WebhookJobPlexTests
 
         _rater.Verify(
             r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-        _resolver.Verify(
-            r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _processor.Verify(
             p => p.ProcessMedia(It.IsAny<Lingarr.Core.Interfaces.IMedia>(), It.IsAny<MediaType>()),
@@ -80,9 +77,7 @@ public class WebhookJobPlexTests
         _rater.Verify(
             r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
             Times.Never);
-        _resolver.Verify(
-            r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _jobs.Verify(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Never);
     }
 
     [Fact]
@@ -93,50 +88,104 @@ public class WebhookJobPlexTests
         _rater.Verify(
             r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
             Times.Never);
-        _resolver.Verify(
-            r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task ProcessPlexWebhook_PassingFilters_DoesNotExtract()
-    {
-        await _job.ProcessPlexWebhook(
-            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"movie","ratingKey":"1"}}""");
-
-        _rater.Verify(
-            r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
-            Times.Once);
-        _resolver.Verify(
-            r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()),
-            Times.Once);
-        _processor.Verify(
-            p => p.ProcessMedia(It.IsAny<Lingarr.Core.Interfaces.IMedia>(), It.IsAny<MediaType>()),
-            Times.Never);
         _jobs.Verify(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Never);
     }
 
     [Fact]
-    public async Task ProcessPlexWebhook_ResolvedMedia_EnqueuesTranslationQueueJob()
+    public async Task ProcessPlexWebhook_PassingFilters_EnqueuesPayloadWithoutResolving()
     {
-        var resolved = PlexMediaResolveResult.Hit(MediaType.Movie, 9, "/movies/Foo/Foo.mkv", "1", "Foo");
-        _resolver.Setup(r => r.ResolveAsync(It.IsAny<PlexWebhookPayload>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(resolved);
-
         await _job.ProcessPlexWebhook(
-            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"movie","ratingKey":"1"}}""");
+            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"movie","ratingKey":"1","title":"Foo"}}""");
 
-        _jobs.Verify(
-            c => c.Create(
-                It.Is<Job>(job =>
-                    job.Type == typeof(PlexRatingTriggerJob)
-                    && Equals(job.Args[0], MediaType.Movie)
-                    && Equals(job.Args[1], 9)
-                    && Equals(job.Args[2], "1")),
-                It.IsAny<IState>()),
+        _rater.Verify(
+            r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _processor.Verify(
             p => p.ProcessMedia(It.IsAny<Lingarr.Core.Interfaces.IMedia>(), It.IsAny<MediaType>()),
             Times.Never);
+        _jobs.Verify(
+            c => c.Create(
+                It.Is<Job>(job =>
+                    job.Type == typeof(PlexRatingTriggerJob)
+                    && job.Args[0].GetType() == typeof(PlexRatingJobPayload)
+                    && ((PlexRatingJobPayload)job.Args[0]).Type == "movie"
+                    && ((PlexRatingJobPayload)job.Args[0]).RatingKey == "1"
+                    && ((PlexRatingJobPayload)job.Args[0]).Title == "Foo"),
+                It.IsAny<IState>()),
+            Times.Once);
     }
+
+    [Fact]
+    public async Task ProcessPlexWebhook_TypeSeason_ExpandsEpisodesIntoJobs()
+    {
+        _seasons.Setup(l => l.ListEpisodesAsync("55", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Episode("101", "One", 1),
+                Episode("102", "Two", 2),
+                Episode("103", "Three", 3)
+            ]);
+
+        await _job.ProcessPlexWebhook(
+            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"season","ratingKey":"55","title":"Season 1","parentTitle":"Orphan"}}""");
+
+        _seasons.Verify(l => l.ListEpisodesAsync("55", It.IsAny<CancellationToken>()), Times.Once);
+        _jobs.Verify(c => c.Create(It.Is<Job>(job => job.Type == typeof(PlexRatingTriggerJob)), It.IsAny<IState>()),
+            Times.Exactly(3));
+        _jobs.Verify(
+            c => c.Create(
+                It.Is<Job>(job =>
+                    job.Type == typeof(PlexRatingTriggerJob)
+                    && ((PlexRatingJobPayload)job.Args[0]).RatingKey == "101"
+                    && ((PlexRatingJobPayload)job.Args[0]).Type == "episode"
+                    && ((PlexRatingJobPayload)job.Args[0]).File == "/mnt/plex/Orphan/S01E01.mkv"),
+                It.IsAny<IState>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessPlexWebhook_TypeSeasonEmpty_DoesNotEnqueue()
+    {
+        await _job.ProcessPlexWebhook(
+            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"season","ratingKey":"55","title":"Season 1"}}""");
+
+        _seasons.Verify(l => l.ListEpisodesAsync("55", It.IsAny<CancellationToken>()), Times.Once);
+        _jobs.Verify(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessPlexWebhook_TypeSeason_SkipsEpisodeWithoutRatingKey()
+    {
+        _seasons.Setup(l => l.ListEpisodesAsync("55", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Episode("", "One", 1),
+                Episode("102", "Two", 2)
+            ]);
+
+        await _job.ProcessPlexWebhook(
+            """{"event":"media.rate","rating":10,"Account":{"id":1,"title":"Owner"},"Metadata":{"type":"season","ratingKey":"55","title":"Season 1"}}""");
+
+        _jobs.Verify(c => c.Create(It.Is<Job>(job => job.Type == typeof(PlexRatingTriggerJob)), It.IsAny<IState>()),
+            Times.Once);
+        _jobs.Verify(
+            c => c.Create(
+                It.Is<Job>(job =>
+                    job.Type == typeof(PlexRatingTriggerJob)
+                    && ((PlexRatingJobPayload)job.Args[0]).RatingKey == "102"),
+                It.IsAny<IState>()),
+            Times.Once);
+    }
+
+    private static PlexMetadata Episode(string ratingKey, string title, int index) =>
+        new()
+        {
+            Type = "episode",
+            RatingKey = ratingKey,
+            Title = title,
+            ParentIndex = 1,
+            Index = index,
+            GrandparentTitle = "Orphan",
+            File = $"/mnt/plex/Orphan/S01E{index:00}.mkv"
+        };
 }

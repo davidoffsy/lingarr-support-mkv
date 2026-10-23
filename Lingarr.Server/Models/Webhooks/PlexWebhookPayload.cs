@@ -54,6 +54,12 @@ public class PlexWebhookMetadata
     [JsonPropertyName("year")]
     public int? Year { get; set; }
 
+    [JsonPropertyName("parentRatingKey")]
+    public string? ParentRatingKey { get; set; }
+
+    [JsonPropertyName("parentTitle")]
+    public string? ParentTitle { get; set; }
+
     [JsonPropertyName("grandparentRatingKey")]
     public string? GrandparentRatingKey { get; set; }
 

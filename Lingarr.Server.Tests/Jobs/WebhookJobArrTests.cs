@@ -32,7 +32,8 @@ public class WebhookJobArrTests
             .UseInMemoryDatabase($"arr-webhook-{Guid.NewGuid()}").Options);
         _job = new WebhookJob(_db, _media.Object, _processor.Object,
             Mock.Of<IPlexWebhookParser>(), Mock.Of<IPlexRaterFilter>(),
-            Mock.Of<IPlexMediaResolver>(), Mock.Of<IBackgroundJobClient>(),
+            Mock.Of<IPlexSeasonEpisodeLister>(),
+            Mock.Of<IBackgroundJobClient>(),
             _settings.Object, NullLogger<WebhookJob>.Instance);
     }
 

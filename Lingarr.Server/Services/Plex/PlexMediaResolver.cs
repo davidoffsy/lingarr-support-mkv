@@ -73,6 +73,8 @@ public class PlexMediaResolver : IPlexMediaResolver
         type = FirstNonEmpty(plexMetadata?.Type, type);
         parentIndex = plexMetadata?.ParentIndex ?? parentIndex;
         index = plexMetadata?.Index ?? index;
+        var year = plexMetadata?.Year ?? metadata?.Year;
+        var grandparentTitle = FirstNonEmpty(plexMetadata?.GrandparentTitle, metadata?.GrandparentTitle);
         var grandparentRatingKey = FirstNonEmpty(
             plexMetadata?.GrandparentRatingKey,
             metadata?.GrandparentRatingKey);
@@ -89,6 +91,9 @@ public class PlexMediaResolver : IPlexMediaResolver
         var isMovie = string.Equals(type, "movie", StringComparison.OrdinalIgnoreCase);
         var mappingType = isMovie ? MediaType.Movie : MediaType.Show;
         var resultType = isMovie ? MediaType.Movie : MediaType.Episode;
+        var displayTitle = isMovie
+            ? PlexDisplayTitle.Movie(title, year)
+            : PlexDisplayTitle.Episode(grandparentTitle, parentIndex, index, title);
         var externalIds = await ResolveLookupIdsAsync(
             isMovie,
             itemGuids,
@@ -119,7 +124,7 @@ public class PlexMediaResolver : IPlexMediaResolver
             var match = await MatchByPathAsync(resultType, mappedPath, cancellationToken);
             if (match != null)
             {
-                return PlexMediaResolveResult.Hit(resultType, match.Id, mappedPath, ratingKey, title);
+                return PlexMediaResolveResult.Hit(resultType, match.Id, mappedPath, ratingKey, displayTitle);
             }
         }
 
@@ -130,7 +135,17 @@ public class PlexMediaResolver : IPlexMediaResolver
             index);
         if (fromArr != 0)
         {
-            return PlexMediaResolveResult.Hit(resultType, fromArr, mappedPath, ratingKey, title);
+            return PlexMediaResolveResult.Hit(resultType, fromArr, mappedPath, ratingKey, displayTitle);
+        }
+
+        if (!string.IsNullOrEmpty(mappedPath))
+        {
+            _logger.LogInformation(
+                "Plex media not in Lingarr library; using mapped path (ratingKey {RatingKey}, title {Title}, mapped path {MappedPath})",
+                ratingKey,
+                displayTitle,
+                mappedPath);
+            return PlexMediaResolveResult.PathHit(resultType, mappedPath, ratingKey, displayTitle);
         }
 
         _logger.LogInformation(
@@ -277,14 +292,12 @@ public class PlexMediaResolver : IPlexMediaResolver
         }
 
         var normalized = _pathConversionService.NormalizePath(mappedPath);
-        var dir = Path.GetDirectoryName(normalized);
-        stem = Path.GetFileNameWithoutExtension(normalized) ?? string.Empty;
-        if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(stem))
+        if (!PlexMappedPath.TrySplit(normalized, out directory, out stem, out _))
         {
             return false;
         }
 
-        directory = NormalizeDirectory(dir);
+        directory = NormalizeDirectory(directory);
         return !string.IsNullOrEmpty(directory);
     }
 

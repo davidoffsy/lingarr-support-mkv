@@ -2,7 +2,6 @@ using Lingarr.Contracts.Models;
 using Lingarr.Core.Configuration;
 using Lingarr.Core.Data;
 using Lingarr.Core.Enum;
-using Lingarr.Core.Interfaces;
 using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Interfaces.Services.Plex;
 using Lingarr.Server.Models;
@@ -52,34 +51,19 @@ public class PlexRatingTrigger : IPlexRatingTrigger
     }
 
     public async Task EnqueueAsync(
-        PlexMediaResolveResult resolved,
+        PlexTranslationTarget target,
         CancellationToken cancellationToken = default)
     {
-        if (!resolved.Found || resolved.MediaType is not MediaType mediaType)
-        {
-            return;
-        }
-
-        var media = await LoadMediaAsync(mediaType, resolved.EntityId, cancellationToken);
-        if (media == null)
+        if (string.IsNullOrEmpty(target.Directory) || string.IsNullOrEmpty(target.FileName))
         {
             _logger.LogInformation(
-                "Plex rating trigger skipped: {MediaType} id {EntityId} not found",
-                mediaType,
-                resolved.EntityId);
+                "Plex rating trigger skipped: Path or FileName is null for {MediaType} {Title}",
+                target.MediaType,
+                target.DisplayTitle);
             return;
         }
 
-        if (string.IsNullOrEmpty(media.Path) || string.IsNullOrEmpty(media.FileName))
-        {
-            _logger.LogInformation(
-                "Plex rating trigger skipped: Path or FileName is null for {MediaType} id {EntityId}",
-                mediaType,
-                media.Id);
-            return;
-        }
-
-        var sidecars = await _subtitleService.GetSubtitles(media.Path, media.FileName);
+        var sidecars = await _subtitleService.GetSubtitles(target.Directory, target.FileName);
         var sourceLanguages = SourceLanguagePicker.CodesInOrder(
             await _settingService.GetSettingAsJson<SourceLanguage>(SettingKeys.Translation.SourceLanguages));
         var targetLanguages = SourceLanguagePicker.CodesInOrder(
@@ -89,13 +73,13 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         {
             _logger.LogInformation(
                 "Plex rating trigger skipped: target language(s) already present for {FileName}: {Languages}",
-                media.FileName,
+                target.FileName,
                 string.Join(", ", targetLanguages));
             return;
         }
 
-        var mkvPath = _mediaFileLocator.FindMkv(media);
-        var probe = await ProbeAsync(mkvPath, media.FileName, cancellationToken);
+        var mkvPath = FindMkv(target);
+        var probe = await ProbeAsync(mkvPath, target.FileName, cancellationToken);
         var tracks = probe?.Tracks ?? [];
         var candidates = PlexSubtitleCandidateMerger.Merge(sidecars, tracks, mkvPath);
         var ignoreCaptions = await _settingService.GetSetting(SettingKeys.Translation.IgnoreCaptions) == "true";
@@ -104,18 +88,18 @@ public class PlexRatingTrigger : IPlexRatingTrigger
             candidates,
             sourceLanguages,
             ignoreCaptions,
-            resolved.RatingKey,
-            mediaType,
-            media.Path,
-            media.FileName,
+            target.RatingKey,
+            target.MediaType,
+            target.Directory,
+            target.FileName,
             cancellationToken);
         if (selected == null)
         {
             _logger.LogInformation(
-                "Plex rating trigger skipped: no source subtitle for {MediaType} id {EntityId} ({FileName}); sidecar languages [{SidecarLanguages}], plex text streams {PlexCount}",
-                mediaType,
-                media.Id,
-                media.FileName,
+                "Plex rating trigger skipped: no source subtitle for {MediaType} {Title} ({FileName}); sidecar languages [{SidecarLanguages}], plex text streams {PlexCount}",
+                target.MediaType,
+                target.DisplayTitle,
+                target.FileName,
                 string.Join(", ", sidecars.Select(sidecar => sidecar.Language).Distinct()),
                 plexCount);
             return;
@@ -124,23 +108,14 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         if (targetLanguages.Count == 0)
         {
             _logger.LogInformation(
-                "Plex rating trigger skipped: no target languages configured for {MediaType} id {EntityId}",
-                mediaType,
-                media.Id);
+                "Plex rating trigger skipped: no target languages configured for {MediaType} {Title}",
+                target.MediaType,
+                target.DisplayTitle);
             return;
         }
 
         var presentLanguages = TargetSubtitlePresence.FullLanguages(sidecars, probe);
-
-        var existingTargets = await _dbContext.TranslationRequests
-            .Where(request =>
-                request.MediaId == media.Id
-                && request.MediaType == mediaType
-                && BlockingStatuses.Contains(request.Status))
-            .Select(request => request.TargetLanguage)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        var existingTargetSet = existingTargets.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingTargetSet = await LoadBlockingTargetLanguagesAsync(target, cancellationToken);
 
         var subtitlePath = selected.IsEmbedded
             ? EmbeddedSubtitlePlaceholder.Create(selected.Path, selected.TrackIndex)
@@ -154,24 +129,24 @@ public class PlexRatingTrigger : IPlexRatingTrigger
                 _logger.LogInformation(
                     "Plex rating trigger skipped target {TargetLanguage}: already present for {FileName}",
                     targetLanguage,
-                    media.FileName);
+                    target.FileName);
                 continue;
             }
 
             if (existingTargetSet.Contains(targetLanguage))
             {
                 _logger.LogInformation(
-                    "Plex rating trigger skipped target {TargetLanguage}: request already exists for {MediaType} id {EntityId}",
+                    "Plex rating trigger skipped target {TargetLanguage}: request already exists for {FileName}",
                     targetLanguage,
-                    mediaType,
-                    media.Id);
+                    target.FileName);
                 continue;
             }
 
             await _translationRequestService.CreateRequest(new TranslateAbleSubtitle
             {
-                MediaId = media.Id,
-                MediaType = mediaType,
+                MediaId = target.MediaId,
+                Title = target.DisplayTitle,
+                MediaType = target.MediaType,
                 SubtitlePath = subtitlePath,
                 SourceLanguage = selected.Language,
                 TargetLanguage = targetLanguage,
@@ -189,9 +164,8 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         if (enqueued == 0)
         {
             _logger.LogInformation(
-                "Plex rating trigger skipped: all target languages already present or requested for {MediaType} id {EntityId}",
-                mediaType,
-                media.Id);
+                "Plex rating trigger skipped: all target languages already present or requested for {FileName}",
+                target.FileName);
         }
     }
 
@@ -263,18 +237,54 @@ public class PlexRatingTrigger : IPlexRatingTrigger
         return (selected, plexCandidates.Count);
     }
 
-    private async Task<IMedia?> LoadMediaAsync(
-        MediaType mediaType,
-        int entityId,
-        CancellationToken cancellationToken) =>
-        mediaType switch
+    private async Task<HashSet<string>> LoadBlockingTargetLanguagesAsync(
+        PlexTranslationTarget target,
+        CancellationToken cancellationToken)
+    {
+        var mediaId = target.MediaId;
+        var mediaType = target.MediaType;
+        var prefix = target.Directory.TrimEnd('/') + "/";
+        var embeddedPrefix = EmbeddedSubtitlePlaceholder.Prefix + prefix;
+        var embeddedDirectory = EmbeddedSubtitlePlaceholder.Prefix + target.Directory;
+
+        var candidates = await _dbContext.TranslationRequests
+            .Where(request =>
+                BlockingStatuses.Contains(request.Status)
+                && (
+                    (mediaId != null && request.MediaId == mediaId && request.MediaType == mediaType)
+                    || (request.SubtitleToTranslate != null && (
+                        request.SubtitleToTranslate.StartsWith(prefix)
+                        || request.SubtitleToTranslate.StartsWith(embeddedPrefix)
+                        || request.SubtitleToTranslate.StartsWith(embeddedDirectory)))))
+            .Select(request => new
+            {
+                request.MediaId,
+                request.MediaType,
+                request.TargetLanguage,
+                request.SubtitleToTranslate
+            })
+            .ToListAsync(cancellationToken);
+
+        return candidates
+            .Where(request =>
+                (mediaId != null && request.MediaId == mediaId && request.MediaType == mediaType)
+                || PlexVideoRequestMatcher.IsSameVideo(
+                    request.SubtitleToTranslate,
+                    target.Directory,
+                    target.FileName))
+            .Select(request => request.TargetLanguage)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string? FindMkv(PlexTranslationTarget target)
+    {
+        if (!MediaFileExtension.AllowsMkvLookup(target.FileExtension))
         {
-            MediaType.Movie => await _dbContext.Movies
-                .FirstOrDefaultAsync(movie => movie.Id == entityId, cancellationToken),
-            MediaType.Episode => await _dbContext.Episodes
-                .FirstOrDefaultAsync(episode => episode.Id == entityId, cancellationToken),
-            _ => null
-        };
+            return null;
+        }
+
+        return _mediaFileLocator.FindMkv(target.Directory, target.FileName);
+    }
 
     private async Task<EmbeddedSubtitleProbeResult?> ProbeAsync(
         string? mkvPath,
@@ -321,5 +331,4 @@ public class PlexRatingTrigger : IPlexRatingTrigger
             IsPlexStream = false,
             StreamKey = selected.StreamKey
         };
-
 }

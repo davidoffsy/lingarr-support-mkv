@@ -136,7 +136,7 @@ public class TranslationRequestService : ITranslationRequestService
     /// <inheritdoc />
     public async Task<int> CreateRequest(TranslateAbleSubtitle translateAbleSubtitle)
     {
-        var mediaTitle = await FormatMediaTitle(translateAbleSubtitle.MediaId, translateAbleSubtitle.MediaType);
+        var mediaTitle = await ResolveRequestTitle(translateAbleSubtitle);
         var translationRequest = new TranslationRequest
         {
             MediaId = translateAbleSubtitle.MediaId,
@@ -1131,6 +1131,23 @@ public class TranslationRequestService : ITranslationRequestService
         await _eventService.LogEvent(translationRequest.Id, TranslationStatus.Completed);
         await UpdateActiveCount();
         await _progressService.Emit(translationRequest, 100); // Tells the frontend to update translation request to a finished state
+    }
+
+    private async Task<string> ResolveRequestTitle(TranslateAbleSubtitle translateAbleSubtitle)
+    {
+        if (translateAbleSubtitle.MediaId is > 0)
+        {
+            return await FormatMediaTitle(translateAbleSubtitle.MediaId.Value, translateAbleSubtitle.MediaType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(translateAbleSubtitle.Title))
+        {
+            return translateAbleSubtitle.Title.Trim();
+        }
+
+        return translateAbleSubtitle.MediaType == MediaType.Episode
+            ? "Unknown Episode"
+            : "Unknown Movie";
     }
 
     /// <summary>

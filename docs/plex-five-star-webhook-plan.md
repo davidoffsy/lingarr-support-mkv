@@ -1,9 +1,10 @@
 # Plex 五星 Webhook → 翻译 一期实施方案
 
 状态：一期已实施  
+后续：孤儿片路径翻译 + 整季五星见 `docs/plex-orphan-five-star-path-translation-plan.md`  
 前置：MKV 抽轨 / `embedded:{path}:{index}` 占位、`TranslationJob` 抽轨、Radarr/Sonarr webhook 已可用  
 范围：Plex Pass `media.rate`（五星）触发，仅翻译 **已从 Radarr/Sonarr 同步进 Lingarr** 的电影和剧集  
-非目标：孤儿片（Plex 有、Arr 无）、无 Pass 轮询、Tautulli、译后 Plex 扫库、图像字幕 OCR、回封装 MKV
+非目标（一期）：孤儿片（Plex 有、Arr 无；已另案实施）、无 Pass 轮询、Tautulli、译后 Plex 扫库、图像字幕 OCR、回封装 MKV
 
 ---
 
@@ -471,12 +472,15 @@ Plex GET 失败（超时、401）：记 Error，让 Hangfire 重试 3 次。
 
 ---
 
-## 13. 二期（本文不实施）
+## 13. 后续与未做项
 
-- 孤儿片：Plex 有、Arr 无，按路径建本地媒体再译  
-- 无 Plex Pass：轮询 `userRating >= 10`  
-- 译完 `GET /library/sections/{id}/refresh?path=`  
-- 标题+年份唯一命中兜底  
+孤儿片路径翻译与整季五星已另案实施，见 `docs/plex-orphan-five-star-path-translation-plan.md`（替换本节原先的「孤儿片」条目：按路径译、不写入 Movies/Shows）。
+
+本文仍不实施：
+
+- 无 Plex Pass：轮询 `userRating >= 10`
+- 译完 `GET /library/sections/{id}/refresh?path=`
+- 标题+年份唯一命中兜底
 - Mapping 链到设置侧栏（现在是隐藏路由）
 
 ---

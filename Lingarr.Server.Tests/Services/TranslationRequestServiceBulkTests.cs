@@ -219,6 +219,48 @@ public class TranslationRequestServiceBulkTests : IDisposable
         Assert.Equal(EnSidecar, request.SubtitleToTranslate);
     }
 
+    [Fact]
+    public async Task CreateRequest_NullMediaId_UsesProvidedTitle()
+    {
+        var id = await _service.CreateRequest(new TranslateAbleSubtitle
+        {
+            MediaId = null,
+            Title = "Orphan (2020)",
+            SubtitlePath = "/other/Unknown/Unknown.en.srt",
+            SourceLanguage = "en",
+            TargetLanguage = "zh",
+            MediaType = MediaType.Movie,
+            SubtitleFormat = ".srt"
+        });
+
+        var request = Assert.Single(_db.TranslationRequests);
+        Assert.Equal(id, request.Id);
+        Assert.Null(request.MediaId);
+        Assert.Equal("Orphan (2020)", request.Title);
+        Assert.Equal(MediaType.Movie, request.MediaType);
+        Assert.Equal(1, _db.Movies.Count());
+    }
+
+    [Fact]
+    public async Task CreateRequest_WithMediaId_UsesLibraryTitle()
+    {
+        var id = await _service.CreateRequest(new TranslateAbleSubtitle
+        {
+            MediaId = _movie.Id,
+            Title = "Ignored",
+            SubtitlePath = EnSidecar,
+            SourceLanguage = "en",
+            TargetLanguage = "zh",
+            MediaType = MediaType.Movie,
+            SubtitleFormat = ".srt"
+        });
+
+        var request = Assert.Single(_db.TranslationRequests);
+        Assert.Equal(id, request.Id);
+        Assert.Equal(_movie.Id, request.MediaId);
+        Assert.Equal("Foo", request.Title);
+    }
+
     private BulkTranslateRequest Bulk(string target) => new()
     {
         MediaIds = [_movie.Id],

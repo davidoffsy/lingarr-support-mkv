@@ -36,6 +36,15 @@ public class PlexWebhookEventFilterTests
     }
 
     [Fact]
+    public void ShouldSkip_TypeSeason_IsFalse()
+    {
+        var payload = Parse("""{"event":"media.rate","rating":10,"Metadata":{"type":"season","title":"Season 1"}}""");
+
+        Assert.False(PlexWebhookEventFilter.ShouldSkip(payload, 10, out var reason));
+        Assert.Equal(string.Empty, reason);
+    }
+
+    [Fact]
     public void ShouldSkip_MediaRateMovieTen_IsFalse()
     {
         var payload = Parse("""{"event":"media.rate","rating":10,"Metadata":{"type":"movie","title":"Dune"}}""");

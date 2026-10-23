@@ -1,7 +1,7 @@
 <template>
     <CardComponent title="Plex">
         <template #description>
-            Sign in with Plex to translate movies and episodes when they are rated five stars.
+            Sign in with Plex to translate movies, episodes, and seasons when they are rated five stars.
         </template>
         <template #content>
             <SaveNotification ref="saveNotification" />
@@ -113,6 +113,9 @@
                     <router-link to="/settings/mapping" class="underline">/settings/mapping</router-link>.
                     Keep <strong>Remove language tag</strong> off (Settings → Subtitle) so Plex can pick
                     language-coded sidecars such as <code>{stem}.{lang}.srt</code>.
+                    Titles not in Radarr/Sonarr still translate when Lingarr can read the mapped file; they
+                    are not added to Movies or Shows. Rate a season on the season page in Plex Web — the
+                    series poster is ignored.
                 </p>
             </div>
         </template>

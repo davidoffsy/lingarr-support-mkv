@@ -5,6 +5,9 @@ public class PlexMetadata
     public string? Type { get; init; }
     public string? Title { get; init; }
     public int? Year { get; init; }
+    public string? RatingKey { get; init; }
+    public string? ParentRatingKey { get; init; }
+    public string? ParentTitle { get; init; }
     public string? GrandparentRatingKey { get; init; }
     public string? GrandparentTitle { get; init; }
     public int? ParentIndex { get; init; }

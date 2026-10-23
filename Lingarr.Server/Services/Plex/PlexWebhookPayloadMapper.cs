@@ -61,6 +61,8 @@ internal static class PlexWebhookPayloadMapper
             RatingKey = PlexJsonElement.GetString(element, "ratingKey"),
             UserRating = PlexJsonElement.Clone(PlexJsonElement.GetProperty(element, "userRating")),
             Year = PlexJsonElement.GetInt32(element, "year"),
+            ParentRatingKey = PlexJsonElement.GetString(element, "parentRatingKey"),
+            ParentTitle = PlexJsonElement.GetString(element, "parentTitle"),
             GrandparentRatingKey = PlexJsonElement.GetString(element, "grandparentRatingKey"),
             GrandparentTitle = PlexJsonElement.GetString(element, "grandparentTitle"),
             ParentIndex = PlexJsonElement.GetInt32(element, "parentIndex"),

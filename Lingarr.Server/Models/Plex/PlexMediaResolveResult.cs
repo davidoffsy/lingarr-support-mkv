@@ -5,6 +5,7 @@ namespace Lingarr.Server.Models.Plex;
 public class PlexMediaResolveResult
 {
     public bool Found { get; init; }
+    public bool IsPathOnly { get; init; }
     public MediaType? MediaType { get; init; }
     public int EntityId { get; init; }
     public string? MappedPath { get; init; }
@@ -37,6 +38,21 @@ public class PlexMediaResolveResult
             Found = true,
             MediaType = mediaType,
             EntityId = entityId,
+            MappedPath = mappedPath,
+            RatingKey = ratingKey,
+            Title = title
+        };
+
+    public static PlexMediaResolveResult PathHit(
+        MediaType mediaType,
+        string mappedPath,
+        string? ratingKey,
+        string? title) =>
+        new()
+        {
+            Found = true,
+            IsPathOnly = true,
+            MediaType = mediaType,
             MappedPath = mappedPath,
             RatingKey = ratingKey,
             Title = title

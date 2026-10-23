@@ -36,6 +36,32 @@ public class PlexWebhookParserTests
         Assert.Equal(10, rating);
     }
 
+    [Fact]
+    public void Parse_SeasonMetadata_ReadsParentFields()
+    {
+        const string json = """
+            {
+              "event": "media.rate",
+              "rating": 10,
+              "Metadata": {
+                "type": "season",
+                "title": "Season 1",
+                "ratingKey": "55",
+                "parentRatingKey": "9",
+                "parentTitle": "Orphan"
+              }
+            }
+            """;
+
+        var payload = _parser.Parse(json);
+
+        Assert.NotNull(payload);
+        Assert.Equal("season", payload!.Metadata?.Type);
+        Assert.Equal("55", payload.Metadata?.RatingKey);
+        Assert.Equal("9", payload.Metadata?.ParentRatingKey);
+        Assert.Equal("Orphan", payload.Metadata?.ParentTitle);
+    }
+
     [Theory]
     [InlineData("""{"event":"media.rate","rating":10.0,"Metadata":{"type":"movie"}}""")]
     [InlineData("""{"event":"media.rate","rating":"10","Metadata":{"type":"movie"}}""")]

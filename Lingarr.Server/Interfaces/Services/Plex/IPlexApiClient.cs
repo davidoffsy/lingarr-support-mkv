@@ -21,6 +21,18 @@ public interface IPlexApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Fetches one page of PMS children for a rating key (season episodes).
+    /// Returns <c>null</c> on 404. Throws on 401, 5xx, or timeout so Hangfire can retry.
+    /// </summary>
+    Task<PlexChildrenPage?> GetChildren(
+        string baseUrl,
+        string accessToken,
+        string ratingKey,
+        int start = 0,
+        int size = 200,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Downloads a PMS subtitle stream (OpenSubtitles sideload, etc.).
     /// Returns <c>null</c> on 404 or when the body is empty / too large.
     /// Throws on 401, 5xx, or timeout so Hangfire can retry.

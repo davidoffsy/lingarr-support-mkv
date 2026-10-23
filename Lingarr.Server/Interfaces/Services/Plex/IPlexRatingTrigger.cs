@@ -8,5 +8,5 @@ public interface IPlexRatingTrigger
     /// Probes sidecars + MKV text tracks, ranks a Plex source, and enqueues translation
     /// requests. Never extracts in the webhook worker.
     /// </summary>
-    Task EnqueueAsync(PlexMediaResolveResult resolved, CancellationToken cancellationToken = default);
+    Task EnqueueAsync(PlexTranslationTarget target, CancellationToken cancellationToken = default);
 }

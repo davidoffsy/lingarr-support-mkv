@@ -5,6 +5,7 @@ using Lingarr.Core.Data;
 using Lingarr.Core.Enum;
 using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Interfaces.Services.Plex;
+using Lingarr.Server.Models.Plex;
 using Lingarr.Server.Models.Webhooks;
 using Lingarr.Server.Services.Plex;
 using Lingarr.Server.Services.Webhooks;
@@ -19,7 +20,7 @@ public class WebhookJob
     private readonly IMediaSubtitleProcessor _mediaSubtitleProcessor;
     private readonly IPlexWebhookParser _plexWebhookParser;
     private readonly IPlexRaterFilter _plexRaterFilter;
-    private readonly IPlexMediaResolver _plexMediaResolver;
+    private readonly IPlexSeasonEpisodeLister _plexSeasonEpisodeLister;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ISettingService _settingService;
     private readonly ILogger<WebhookJob> _logger;
@@ -30,7 +31,7 @@ public class WebhookJob
         IMediaSubtitleProcessor mediaSubtitleProcessor,
         IPlexWebhookParser plexWebhookParser,
         IPlexRaterFilter plexRaterFilter,
-        IPlexMediaResolver plexMediaResolver,
+        IPlexSeasonEpisodeLister plexSeasonEpisodeLister,
         IBackgroundJobClient backgroundJobClient,
         ISettingService settingService,
         ILogger<WebhookJob> logger)
@@ -40,7 +41,7 @@ public class WebhookJob
         _mediaSubtitleProcessor = mediaSubtitleProcessor;
         _plexWebhookParser = plexWebhookParser;
         _plexRaterFilter = plexRaterFilter;
-        _plexMediaResolver = plexMediaResolver;
+        _plexSeasonEpisodeLister = plexSeasonEpisodeLister;
         _backgroundJobClient = backgroundJobClient;
         _settingService = settingService;
         _logger = logger;
@@ -176,25 +177,61 @@ public class WebhookJob
             return;
         }
 
-        var resolved = await _plexMediaResolver.ResolveAsync(payload);
-        if (!resolved.Found || resolved.MediaType is not MediaType mediaType)
+        if (IsSeason(payload))
+        {
+            await EnqueueSeasonEpisodes(payload);
+            return;
+        }
+
+        EnqueueRatingJob(PlexRatingJobPayloadMapper.FromWebhook(payload));
+    }
+
+    private async Task EnqueueSeasonEpisodes(PlexWebhookPayload payload)
+    {
+        var seasonKey = payload.Metadata?.RatingKey;
+        if (string.IsNullOrWhiteSpace(seasonKey))
         {
             _logger.LogInformation(
-                "Plex webhook skipped: {Reason} (ratingKey {RatingKey}, title {Title})",
-                resolved.SkipReason,
-                payload.Metadata?.RatingKey,
+                "Plex season webhook skipped: missing ratingKey (title {Title})",
                 payload.Metadata?.Title);
             return;
         }
 
-        _logger.LogInformation(
-            "Plex media resolved as {MediaType} id {EntityId} (ratingKey {RatingKey}, path {MappedPath})",
-            mediaType,
-            resolved.EntityId,
-            payload.Metadata?.RatingKey,
-            resolved.MappedPath);
+        var episodes = await _plexSeasonEpisodeLister.ListEpisodesAsync(seasonKey);
+        if (episodes.Count == 0)
+        {
+            _logger.LogInformation(
+                "Plex season webhook finished with no episodes (ratingKey {RatingKey}, title {Title})",
+                seasonKey,
+                payload.Metadata?.Title);
+            return;
+        }
 
-        _backgroundJobClient.Enqueue<PlexRatingTriggerJob>(job =>
-            job.Execute(mediaType, resolved.EntityId, resolved.RatingKey, CancellationToken.None));
+        var enqueued = 0;
+        foreach (var episode in episodes)
+        {
+            if (string.IsNullOrWhiteSpace(episode.RatingKey))
+            {
+                continue;
+            }
+
+            EnqueueRatingJob(PlexRatingJobPayloadMapper.FromEpisode(episode));
+            enqueued++;
+        }
+
+        _logger.LogInformation(
+            "Plex season expanded to {Count} translation jobs (season ratingKey {RatingKey}, title {Title})",
+            enqueued,
+            seasonKey,
+            payload.Metadata?.Title);
     }
+
+    private void EnqueueRatingJob(PlexRatingJobPayload payload)
+    {
+        _backgroundJobClient.Enqueue<PlexRatingTriggerJob>(job =>
+            job.Execute(payload, CancellationToken.None));
+    }
+
+    private static bool IsSeason(PlexWebhookPayload payload) =>
+        string.Equals(payload.Metadata?.Type, "season", StringComparison.OrdinalIgnoreCase);
 }

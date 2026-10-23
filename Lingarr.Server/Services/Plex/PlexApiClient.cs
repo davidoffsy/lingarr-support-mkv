@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -100,6 +101,64 @@ public class PlexApiClient : IPlexApiClient
         using var document = JsonDocument.Parse(json);
         var item = PlexMetadataMapper.FirstMetadataItem(document.RootElement);
         return item == null ? null : PlexMetadataMapper.FromJson(item.Value);
+    }
+
+    public async Task<PlexChildrenPage?> GetChildren(
+        string baseUrl,
+        string accessToken,
+        string ratingKey,
+        int start = 0,
+        int size = 200,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl) ||
+            string.IsNullOrWhiteSpace(accessToken) ||
+            string.IsNullOrWhiteSpace(ratingKey))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(baseUrl.TrimEnd('/'), UriKind.Absolute, out var parsedBase))
+        {
+            _logger.LogWarning("Plex children fetch skipped: invalid URL {Url}", baseUrl);
+            return null;
+        }
+
+        if (start < 0)
+        {
+            start = 0;
+        }
+
+        if (size <= 0)
+        {
+            size = 200;
+        }
+
+        var childrenUri = new Uri(parsedBase, $"/library/metadata/{Uri.EscapeDataString(ratingKey)}/children");
+        var client = _httpClientFactory.CreateClient("Plex");
+        using var request = new HttpRequestMessage(HttpMethod.Get, childrenUri);
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+        request.Headers.TryAddWithoutValidation("X-Plex-Token", accessToken);
+        request.Headers.TryAddWithoutValidation("X-Plex-Product", PlexHeaders.Product);
+        request.Headers.TryAddWithoutValidation(
+            "X-Plex-Container-Start",
+            start.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation(
+            "X-Plex-Container-Size",
+            size.ToString(CultureInfo.InvariantCulture));
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogInformation("Plex children not found for ratingKey {RatingKey}", ratingKey);
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(json);
+        return PlexMetadataMapper.ReadChildrenPage(document.RootElement);
     }
 
     public async Task<byte[]?> DownloadStream(

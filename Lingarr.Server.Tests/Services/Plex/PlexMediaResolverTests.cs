@@ -265,11 +265,39 @@ public class PlexMediaResolverTests : IDisposable
 
         var result = await _resolver.ResolveAsync(MoviePayload("42", "Unknown"));
 
-        Assert.False(result.Found);
-        Assert.Contains("not in Lingarr library", result.SkipReason);
+        Assert.True(result.Found);
+        Assert.True(result.IsPathOnly);
+        Assert.Equal(0, result.EntityId);
+        Assert.Equal("/other/Unknown.mkv", result.MappedPath);
+        Assert.Equal("Unknown", result.Title);
         Assert.Equal(1, _db.Movies.Count());
         Assert.Empty(_db.ChangeTracker.Entries<Movie>().Where(e => e.State == EntityState.Added));
         _media.Verify(m => m.GetMovieIdOrSyncFromRadarrMovieId(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Resolve_PathOnlyMovie_UsesYearInDisplayTitle()
+    {
+        _plexApi.Setup(c => c.GetMetadata(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                "42",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PlexMetadata
+            {
+                Type = "movie",
+                Title = "Dune",
+                Year = 2021,
+                File = "/mnt/orphan/Dune/Dune.mkv",
+                Guids = []
+            });
+
+        var result = await _resolver.ResolveAsync(MoviePayload("42", "Dune"));
+
+        Assert.True(result.IsPathOnly);
+        Assert.Equal("Dune (2021)", result.Title);
+        Assert.Equal("/mnt/orphan/Dune/Dune.mkv", result.MappedPath);
+        Assert.Empty(_db.Movies);
     }
 
     [Fact]
@@ -355,7 +383,9 @@ public class PlexMediaResolverTests : IDisposable
 
         var result = await _resolver.ResolveAsync(EpisodePayload("7", "Pilot"));
 
-        Assert.False(result.Found);
+        Assert.True(result.IsPathOnly);
+        Assert.Equal(0, result.EntityId);
+        Assert.Empty(_db.Episodes);
         _sonarr.Verify(s => s.GetShowByTvdbId(It.IsAny<int>()), Times.Never);
         _sonarr.Verify(s => s.GetShowByImdbId(It.IsAny<string>()), Times.Never);
         _media.Verify(m => m.GetEpisodeIdOrSyncFromSonarrEpisodeId(It.IsAny<int>()), Times.Never);
