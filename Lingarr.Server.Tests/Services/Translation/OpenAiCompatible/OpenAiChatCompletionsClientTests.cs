@@ -187,6 +187,19 @@ public class OpenAiChatCompletionsClientTests
     }
 
     [Fact]
+    public async Task CompleteBatchAsync_NumberedList_DoesNotSendFallbackRequest()
+    {
+        var bodies = CaptureRequests(_ => ChatOk("1. Hola\n2. Mundo"));
+
+        var result = await CompleteBatchAsync();
+
+        Assert.Equal("Hola", result[1]);
+        Assert.Equal("Mundo", result[2]);
+        Assert.Single(bodies);
+        Assert.Equal("json_schema", GetFormat(bodies[0]));
+    }
+
+    [Fact]
     public async Task CompleteBatchAsync_FormatProbe_LogsFirstRejectionAsWarningNotError()
     {
         var logger = new RecordingLogger();

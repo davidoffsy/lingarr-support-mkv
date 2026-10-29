@@ -73,6 +73,19 @@ public class LocalAiServiceTests
     }
 
     [Fact]
+    public async Task TranslateBatchAsync_GenerateApi_NumberedList_ParsesWithoutRetry()
+    {
+        UseSettings(GenerateEndpoint);
+        SetupResponse(() => GenerateResponse("1. Hola\n2. Mundo"));
+
+        var result = await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+
+        Assert.Equal("Hola", result[1]);
+        Assert.Equal("Mundo", result[2]);
+        VerifyRequestsSent(1);
+    }
+
+    [Fact]
     public async Task TranslateBatchAsync_ShouldRetry_WhenGenerateApiReturnsMalformedJson()
     {
         // Arrange

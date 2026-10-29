@@ -495,6 +495,19 @@ public class CustomServiceTests
     }
 
     [Fact]
+    public async Task TranslateBatchAsync_NumberedList_ParsesWithoutFallbackRequest()
+    {
+        UseSettings(BaseEndpoint);
+        SetupResponse(() => ChatResponse("1. Hola\n2. Mundo"));
+
+        var result = await _service.TranslateBatchAsync(Batch(), "en", "es", CancellationToken.None);
+
+        Assert.Equal("Hola", result[1]);
+        Assert.Equal("Mundo", result[2]);
+        VerifyRequestsSent(1);
+    }
+
+    [Fact]
     public async Task TranslateBatchAsync_FallsBackToJsonParsing()
     {
         UseSettings(BaseEndpoint);

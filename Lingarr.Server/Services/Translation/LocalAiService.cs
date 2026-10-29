@@ -7,7 +7,6 @@ using Lingarr.Core.Configuration;
 using Lingarr.Server.Exceptions;
 using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Models.Integrations.Translation;
-using Lingarr.Server.Services.Translation.Batch;
 using Lingarr.Server.Services.Translation.Base;
 using Lingarr.Server.Services.Translation.LocalAi;
 using Lingarr.Server.Services.Translation.OpenAiCompatible;
@@ -427,33 +426,7 @@ public class LocalAiService : BaseLanguageService, ITranslationService, IBatchTr
             throw new TranslationException("Invalid or empty response from generate API.");
         }
 
-        var translatedJson = generateResponse.Response;
-
-        // Try to extract JSON from the response
-        var jsonStart = translatedJson.IndexOf('[');
-        var jsonEnd = translatedJson.LastIndexOf(']');
-
-        if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)
-        {
-            translatedJson = translatedJson.Substring(jsonStart, jsonEnd - jsonStart + 1);
-        }
-
-        try
-        {
-            var translatedItems = JsonSerializer.Deserialize<List<StructuredBatchResponse>>(translatedJson);
-
-            if (translatedItems == null)
-            {
-                throw new TranslationParseException("Failed to deserialize translated subtitles from generate API");
-            }
-
-            return BatchResponseMerger.MergeByPosition(translatedItems);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "Failed to parse generate API JSON response: {Json}", translatedJson);
-            throw new TranslationParseException("Failed to parse generate API translated subtitles", ex);
-        }
+        return BatchJsonParser.ParseJsonArray(generateResponse.Response, _logger);
     }
 
     private async Task<string> TranslateWithGenerateApi(
