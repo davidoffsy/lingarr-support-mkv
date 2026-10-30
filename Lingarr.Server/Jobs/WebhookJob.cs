@@ -17,7 +17,6 @@ public class WebhookJob
 {
     private readonly LingarrDbContext _dbContext;
     private readonly IMediaService _mediaService;
-    private readonly IMediaSubtitleProcessor _mediaSubtitleProcessor;
     private readonly IPlexWebhookParser _plexWebhookParser;
     private readonly IPlexRaterFilter _plexRaterFilter;
     private readonly IPlexSeasonEpisodeLister _plexSeasonEpisodeLister;
@@ -28,7 +27,6 @@ public class WebhookJob
     public WebhookJob(
         LingarrDbContext dbContext,
         IMediaService mediaService,
-        IMediaSubtitleProcessor mediaSubtitleProcessor,
         IPlexWebhookParser plexWebhookParser,
         IPlexRaterFilter plexRaterFilter,
         IPlexSeasonEpisodeLister plexSeasonEpisodeLister,
@@ -38,7 +36,6 @@ public class WebhookJob
     {
         _dbContext = dbContext;
         _mediaService = mediaService;
-        _mediaSubtitleProcessor = mediaSubtitleProcessor;
         _plexWebhookParser = plexWebhookParser;
         _plexRaterFilter = plexRaterFilter;
         _plexSeasonEpisodeLister = plexSeasonEpisodeLister;
@@ -87,7 +84,7 @@ public class WebhookJob
             }
 
             if (!await AutoTranslateEnabled(SettingKeys.Integration.RadarrWebhookAutoTranslate)) return;
-            await _mediaSubtitleProcessor.ProcessMedia(movie, MediaType.Movie);
+            ScheduleArrTranslation(movieId, MediaType.Movie);
         }
         catch (Exception ex)
         {
@@ -130,7 +127,7 @@ public class WebhookJob
 
                 if (autoTranslate)
                 {
-                    await _mediaSubtitleProcessor.ProcessMedia(episodeEntity, MediaType.Episode);
+                    ScheduleArrTranslation(episodeId, MediaType.Episode);
                 }
             }
 
@@ -230,6 +227,13 @@ public class WebhookJob
     {
         _backgroundJobClient.Enqueue<PlexRatingTriggerJob>(job =>
             job.Execute(payload, CancellationToken.None));
+    }
+
+    private void ScheduleArrTranslation(int mediaId, MediaType mediaType)
+    {
+        _backgroundJobClient.Schedule<ArrWebhookTranslationJob>(
+            job => job.Execute(mediaId, mediaType, 0, CancellationToken.None),
+            ArrWebhookTranslationRetry.InitialDelay);
     }
 
     private static bool IsSeason(PlexWebhookPayload payload) =>

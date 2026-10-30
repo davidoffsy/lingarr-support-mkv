@@ -2,15 +2,17 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Hangfire;
+using Hangfire.Common;
+using Hangfire.States;
 using Lingarr.Core.Configuration;
 using Lingarr.Core.Data;
 using Lingarr.Core.Entities;
 using Lingarr.Core.Enum;
-using Lingarr.Core.Interfaces;
 using Lingarr.Server.Interfaces.Services;
 using Lingarr.Server.Interfaces.Services.Plex;
 using Lingarr.Server.Jobs;
 using Lingarr.Server.Models.Webhooks;
+using Lingarr.Server.Services.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -22,18 +24,19 @@ public class WebhookJobArrTests
 {
     private readonly LingarrDbContext _db;
     private readonly Mock<IMediaService> _media = new();
-    private readonly Mock<IMediaSubtitleProcessor> _processor = new();
     private readonly Mock<ISettingService> _settings = new();
+    private readonly Mock<IBackgroundJobClient> _jobs = new();
     private readonly WebhookJob _job;
 
     public WebhookJobArrTests()
     {
         _db = new LingarrDbContext(new DbContextOptionsBuilder<LingarrDbContext>()
             .UseInMemoryDatabase($"arr-webhook-{Guid.NewGuid()}").Options);
-        _job = new WebhookJob(_db, _media.Object, _processor.Object,
+        _jobs.Setup(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>())).Returns("job-id");
+        _job = new WebhookJob(_db, _media.Object,
             Mock.Of<IPlexWebhookParser>(), Mock.Of<IPlexRaterFilter>(),
             Mock.Of<IPlexSeasonEpisodeLister>(),
-            Mock.Of<IBackgroundJobClient>(),
+            _jobs.Object,
             _settings.Object, NullLogger<WebhookJob>.Instance);
     }
 
@@ -54,8 +57,7 @@ public class WebhookJobArrTests
         });
 
         _media.Verify(m => m.GetMovieIdOrSyncFromRadarrMovieId(12), Times.Once);
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), MediaType.Movie),
-            translate ? Times.Once : Times.Never);
+        VerifyArrTranslationSchedule(movie.Id, MediaType.Movie, translate ? Times.Once() : Times.Never());
     }
 
     [Theory]
@@ -82,9 +84,10 @@ public class WebhookJobArrTests
         });
 
         foreach (var episode in episodes)
+        {
             _media.Verify(m => m.GetEpisodeIdOrSyncFromSonarrEpisodeId(episode.SonarrId), Times.Once);
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), MediaType.Episode),
-            translate ? Times.Exactly(2) : Times.Never());
+            VerifyArrTranslationSchedule(episode.Id, MediaType.Episode, translate ? Times.Once() : Times.Never());
+        }
     }
 
     [Fact]
@@ -113,8 +116,8 @@ public class WebhookJobArrTests
             Episodes = new[] { new SonarrWebhookEpisode { Id = 21 } }.ToList()
         });
 
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), MediaType.Movie), Times.Never);
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), MediaType.Episode), Times.Once);
+        VerifyArrTranslationSchedule(movie.Id, MediaType.Movie, Times.Never());
+        VerifyArrTranslationSchedule(episode.Id, MediaType.Episode, Times.Once());
     }
 
     [Fact]
@@ -132,7 +135,7 @@ public class WebhookJobArrTests
             EventType = "Download", Movie = new RadarrWebhookMovie { Id = 12, Title = "Movie" }
         });
 
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), MediaType.Movie), Times.Never);
+        VerifyArrTranslationSchedule(movie.Id, MediaType.Movie, Times.Never());
     }
 
     [Fact]
@@ -144,6 +147,19 @@ public class WebhookJobArrTests
         });
 
         _media.Verify(m => m.GetMovieIdOrSyncFromRadarrMovieId(It.IsAny<int>()), Times.Never);
-        _processor.Verify(p => p.ProcessMedia(It.IsAny<IMedia>(), It.IsAny<MediaType>()), Times.Never);
+        _jobs.Verify(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Never);
+    }
+
+    private void VerifyArrTranslationSchedule(int mediaId, MediaType mediaType, Times times)
+    {
+        _jobs.Verify(
+            c => c.Create(
+                It.Is<Job>(job =>
+                    job.Type == typeof(ArrWebhookTranslationJob)
+                    && (int)job.Args[0]! == mediaId
+                    && (MediaType)job.Args[1]! == mediaType
+                    && (int)job.Args[2]! == 0),
+                It.Is<IState>(state => state is ScheduledState)),
+            times);
     }
 }

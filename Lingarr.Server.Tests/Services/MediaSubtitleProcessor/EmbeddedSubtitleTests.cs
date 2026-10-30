@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lingarr.Core.Configuration;
 using Lingarr.Core.Enum;
+using Lingarr.Server.Models;
 using Lingarr.Server.Models.FileSystem;
 using Moq;
 using Xunit;
@@ -34,6 +35,54 @@ public class EmbeddedSubtitleTests : MediaSubtitleProcessorTestBase
         EmbeddedSubtitleServiceMock.Verify(
             s => s.ExtractAsync(It.IsAny<string>(), It.IsAny<EmbeddedSubtitleTrack>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        TranslationRequestServiceMock.Verify(
+            s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessMedia_ScanEnabled_MkvMissing_DoesNotPersistHash()
+    {
+        var movie = await CreateTestMovie();
+        SubtitleServiceMock
+            .Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new List<Subtitles>());
+        SetupStandardSettings();
+        EnableEmbeddedScan();
+        MediaFileLocatorMock.Setup(l => l.FindMkv(movie)).Returns((string?)null);
+
+        var result = await Processor.ProcessMediaDetailed(movie, MediaType.Movie);
+
+        Assert.False(result.Translated);
+        Assert.True(result.Retryable);
+        Assert.True(string.IsNullOrEmpty(movie.MediaHash));
+        EmbeddedSubtitleServiceMock.Verify(
+            s => s.ProbeDetailedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        TranslationRequestServiceMock.Verify(
+            s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessMedia_ScanEnabled_ProbeTimeout_DoesNotPersistHash()
+    {
+        var movie = await CreateTestMovie();
+        SubtitleServiceMock
+            .Setup(s => s.GetSubtitles(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new List<Subtitles>());
+        SetupStandardSettings();
+        EnableEmbeddedScan();
+        MediaFileLocatorMock.Setup(l => l.FindMkv(movie)).Returns(MkvPath);
+        EmbeddedSubtitleServiceMock
+            .Setup(s => s.ProbeDetailedAsync(MkvPath, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EmbeddedSubtitleProbeResult.NotFound(EmbeddedSubtitleProbeResult.ReasonTimeout));
+
+        var result = await Processor.ProcessMediaDetailed(movie, MediaType.Movie);
+
+        Assert.False(result.Translated);
+        Assert.True(result.Retryable);
+        Assert.True(string.IsNullOrEmpty(movie.MediaHash));
         TranslationRequestServiceMock.Verify(
             s => s.CreateRequest(It.IsAny<TranslateAbleSubtitle>()),
             Times.Never);

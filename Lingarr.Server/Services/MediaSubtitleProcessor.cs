@@ -46,6 +46,15 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
 
     /// <inheritdoc />
     public async Task<bool> ProcessMedia(
+        IMedia media,
+        MediaType mediaType)
+    {
+        var result = await ProcessMediaDetailed(media, mediaType);
+        return result.Translated;
+    }
+
+    /// <inheritdoc />
+    public async Task<MediaProcessingResult> ProcessMediaDetailed(
         IMedia media, 
         MediaType mediaType)
     {
@@ -54,7 +63,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
             _logger.LogWarning(
                 "Skipping media processing: Path or FileName is null for {MediaType} with ID {MediaId}",
                 mediaType, media.Id);
-            return false;
+            return MediaProcessingResult.Retry();
         }
         
         var subtitles = await _subtitleService.GetSubtitles(media.Path, media.FileName);
@@ -89,7 +98,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
             mkvFingerprint);
         if (!string.IsNullOrEmpty(media.MediaHash) && media.MediaHash == _hash)
         {
-            return false;
+            return MediaProcessingResult.Skipped();
         }
 
         EmbeddedSubtitleProbeResult? probe = null;
@@ -100,8 +109,17 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
 
         if (subtitles.Count == 0)
         {
+            if (IncompleteMediaObservation.ShouldRetry(needsMkv, mkvPath, probe, out var reason))
+            {
+                _logger.LogInformation(
+                    "Embedded scan incomplete for |Green|{FileName}|/Green| ({Reason}); not persisting hash so a later run can retry.",
+                    media.FileName,
+                    reason);
+                return MediaProcessingResult.Retry();
+            }
+
             await UpdateHash();
-            return false;
+            return MediaProcessingResult.Skipped();
         }
         
         _logger.LogInformation("Initiating subtitle processing.");
@@ -159,8 +177,8 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
     /// <param name="ignoreCaptions">The ignore captions setting.</param>
     /// <param name="mkvPath">MKV path when embedded tracks were probed; otherwise null.</param>
     /// <param name="presentLanguages">Full (non-forced) languages already present on disk or in the MKV.</param>
-    /// <returns>True if new translation requests were created, false otherwise.</returns>
-    private async Task<bool> ProcessSubtitles(
+    /// <returns>Whether translations were created, skipped, or should be retried.</returns>
+    private async Task<MediaProcessingResult> ProcessSubtitles(
         List<Subtitles> subtitles,
         IReadOnlyList<string> sourceLanguages,
         IReadOnlyList<string> targetLanguages,
@@ -174,7 +192,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
                 "Source or target languages are empty. Source languages: {SourceCount}, Target languages: {TargetCount}",
                 sourceLanguages.Count, targetLanguages.Count);
             await UpdateHash();
-            return false;
+            return MediaProcessingResult.Skipped();
         }
 
         var selected = _subtitleService.SelectSourceSubtitle(subtitles, sourceLanguages, ignoreCaptions);
@@ -191,7 +209,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
                 string.Join(", ", targetLanguages));
 
             await UpdateHash();
-            return false;
+            return MediaProcessingResult.Skipped();
         }
 
         var languagesToTranslate = TargetSubtitlePresence.Missing(presentLanguages, targetLanguages);
@@ -221,12 +239,12 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
         if (!languagesToTranslate.Any())
         {
             await UpdateHash();
-            return false;
+            return MediaProcessingResult.Skipped();
         }
 
         if (!await EnsureSidecarSource(selected.Subtitle, mkvPath))
         {
-            return false;
+            return MediaProcessingResult.Retry();
         }
 
         foreach (var targetLanguage in languagesToTranslate)
@@ -248,7 +266,7 @@ public class MediaSubtitleProcessor : IMediaSubtitleProcessor
         }
 
         await UpdateHash();
-        return true;
+        return MediaProcessingResult.Created();
     }
 
     /// <summary>

@@ -22,7 +22,6 @@ namespace Lingarr.Server.Tests.Jobs;
 public class WebhookJobPlexTests
 {
     private readonly Mock<IMediaService> _media = new();
-    private readonly Mock<IMediaSubtitleProcessor> _processor = new();
     private readonly Mock<IPlexRaterFilter> _rater = new();
     private readonly Mock<IPlexSeasonEpisodeLister> _seasons = new();
     private readonly Mock<IBackgroundJobClient> _jobs = new();
@@ -46,7 +45,6 @@ public class WebhookJobPlexTests
         _job = new WebhookJob(
             db,
             _media.Object,
-            _processor.Object,
             _parser,
             _rater.Object,
             _seasons.Object,
@@ -62,9 +60,6 @@ public class WebhookJobPlexTests
 
         _rater.Verify(
             r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-        _processor.Verify(
-            p => p.ProcessMedia(It.IsAny<Lingarr.Core.Interfaces.IMedia>(), It.IsAny<MediaType>()),
             Times.Never);
         _jobs.Verify(c => c.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Never);
     }
@@ -100,9 +95,6 @@ public class WebhookJobPlexTests
         _rater.Verify(
             r => r.IsAllowedAsync(It.IsAny<PlexWebhookAccount?>(), It.IsAny<CancellationToken>()),
             Times.Once);
-        _processor.Verify(
-            p => p.ProcessMedia(It.IsAny<Lingarr.Core.Interfaces.IMedia>(), It.IsAny<MediaType>()),
-            Times.Never);
         _jobs.Verify(
             c => c.Create(
                 It.Is<Job>(job =>

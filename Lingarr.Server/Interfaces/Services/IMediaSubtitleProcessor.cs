@@ -1,5 +1,6 @@
-﻿using Lingarr.Core.Enum;
+using Lingarr.Core.Enum;
 using Lingarr.Core.Interfaces;
+using Lingarr.Server.Models;
 
 namespace Lingarr.Server.Interfaces.Services;
 
@@ -15,4 +16,10 @@ public interface IMediaSubtitleProcessor
     /// Returns true if new translations were requested, false if no processing was needed or possible.
     /// </returns>
     Task<bool> ProcessMedia(IMedia media, MediaType mediaType);
+
+    /// <summary>
+    /// Same scan as <see cref="ProcessMedia"/>, including whether a later retry should run
+    /// because the MKV could not be observed yet.
+    /// </summary>
+    Task<MediaProcessingResult> ProcessMediaDetailed(IMedia media, MediaType mediaType);
 }
