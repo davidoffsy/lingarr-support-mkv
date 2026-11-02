@@ -32,11 +32,7 @@ public static class TrailingIdeographicFullStopStripper
             return;
         }
 
-        var visible = new List<(int Line, int Index)>();
-        for (var lineIndex = 0; lineIndex < lines.Count; lineIndex++)
-        {
-            CollectVisible(lines[lineIndex], lineIndex, visible);
-        }
+        var visible = SubtitleVisibleText.Collect(lines);
 
         // A cue that is only "。" would become empty; leave it alone.
         if (visible.Count < 2)
@@ -58,62 +54,4 @@ public static class TrailingIdeographicFullStopStripper
 
         lines[last.Line] = lines[last.Line].Remove(last.Index, 1);
     }
-
-    private static void CollectVisible(string? line, int lineIndex, List<(int Line, int Index)> visible)
-    {
-        if (string.IsNullOrEmpty(line))
-        {
-            return;
-        }
-
-        var index = 0;
-        while (index < line.Length)
-        {
-            var current = line[index];
-            if (TrySkipDelimited(line, ref index, '{', '}'))
-            {
-                continue;
-            }
-
-            if (TrySkipDelimited(line, ref index, '<', '>'))
-            {
-                continue;
-            }
-
-            if (current == '\\' && index + 1 < line.Length && IsAssWhitespaceEscape(line[index + 1]))
-            {
-                index += 2;
-                continue;
-            }
-
-            if (char.IsWhiteSpace(current))
-            {
-                index++;
-                continue;
-            }
-
-            visible.Add((lineIndex, index));
-            index++;
-        }
-    }
-
-    private static bool TrySkipDelimited(string line, ref int index, char open, char close)
-    {
-        if (line[index] != open)
-        {
-            return false;
-        }
-
-        var closeIndex = line.IndexOf(close, index + 1);
-        if (closeIndex < 0)
-        {
-            return false;
-        }
-
-        index = closeIndex + 1;
-        return true;
-    }
-
-    private static bool IsAssWhitespaceEscape(char next) =>
-        next is 'N' or 'n' or 'h' or 't';
 }

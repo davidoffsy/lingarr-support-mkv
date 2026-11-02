@@ -302,6 +302,52 @@ public class SubtitleServiceTests : IDisposable
         Assert.Contains("我回来了。", await File.ReadAllTextAsync(path));
     }
 
+    [Fact]
+    public async Task WriteSubtitles_InlineSettingOff_KeepsMidCueIdeographicFullStop()
+    {
+        _settings
+            .Setup(service => service.GetSetting(SettingKeys.Translation.ReplaceInlineIdeographicFullStop))
+            .ReturnsAsync("false");
+        var path = Path.Combine(_directory, "Movie.zh.srt");
+
+        await _service.WriteSubtitles(path, [Cue("你好。我回来了")], false);
+
+        Assert.Contains("你好。我回来了", await File.ReadAllTextAsync(path));
+    }
+
+    [Fact]
+    public async Task WriteSubtitles_InlineSettingOn_ReplacesMidCueIdeographicFullStop()
+    {
+        _settings
+            .Setup(service => service.GetSetting(SettingKeys.Translation.ReplaceInlineIdeographicFullStop))
+            .ReturnsAsync("true");
+        var path = Path.Combine(_directory, "Movie.zh.srt");
+
+        await _service.WriteSubtitles(path, [Cue("你好。我回来了。")], false);
+
+        var body = await File.ReadAllTextAsync(path);
+        Assert.Contains("你好 我回来了。", body);
+        Assert.DoesNotContain("你好。我回来了", body);
+    }
+
+    [Fact]
+    public async Task WriteSubtitles_BothPeriodSettingsOn_ReplacesInlineAndStripsTrailing()
+    {
+        _settings
+            .Setup(service => service.GetSetting(SettingKeys.Translation.ReplaceInlineIdeographicFullStop))
+            .ReturnsAsync("true");
+        _settings
+            .Setup(service => service.GetSetting(SettingKeys.Translation.StripTrailingIdeographicFullStop))
+            .ReturnsAsync("true");
+        var path = Path.Combine(_directory, "Movie.zh.srt");
+
+        await _service.WriteSubtitles(path, [Cue("你好。我回来了。")], false);
+
+        var body = await File.ReadAllTextAsync(path);
+        Assert.Contains("你好 我回来了", body);
+        Assert.DoesNotContain("。", body);
+    }
+
     private static SubtitleItem Cue(string translated) => new()
     {
         Position = 1,

@@ -106,7 +106,12 @@ public class SubtitleService : ISubtitleService
     /// <inheritdoc />
     public async Task WriteSubtitles(string filePath, List<SubtitleItem> subtitles, bool stripSubtitleFormatting)
     {
-        if (await IsStripTrailingIdeographicFullStopEnabled())
+        if (await IsSettingEnabled(SettingKeys.Translation.ReplaceInlineIdeographicFullStop))
+        {
+            InlineIdeographicFullStopReplacer.Apply(subtitles);
+        }
+
+        if (await IsSettingEnabled(SettingKeys.Translation.StripTrailingIdeographicFullStop))
         {
             TrailingIdeographicFullStopStripper.Apply(subtitles);
         }
@@ -123,9 +128,9 @@ public class SubtitleService : ISubtitleService
         await writer.WriteStreamAsync(fileStream, subtitles, stripSubtitleFormatting);
     }
 
-    private async Task<bool> IsStripTrailingIdeographicFullStopEnabled()
+    private async Task<bool> IsSettingEnabled(string key)
     {
-        var value = await _settings.GetSetting(SettingKeys.Translation.StripTrailingIdeographicFullStop);
+        var value = await _settings.GetSetting(key);
         return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 

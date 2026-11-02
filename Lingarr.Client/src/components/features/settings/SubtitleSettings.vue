@@ -111,6 +111,19 @@
                 </ToggleButton>
 
                 <div class="flex flex-col space-x-2">
+                    <span class="font-semibold">Replace inline full-width period:</span>
+                    Replace a single ideographic period (。) in the middle of a subtitle with a
+                    space when writing the file. Consecutive periods (。。。), periods inside quotes,
+                    question and exclamation marks, and a trailing period are not changed. Off by
+                    default.
+                </div>
+                <ToggleButton v-model="replaceInlineIdeographicFullStop">
+                    <span class="text-primary-content text-sm font-medium">
+                        {{ replaceInlineIdeographicFullStop == 'true' ? 'Enabled' : 'Disabled' }}
+                    </span>
+                </ToggleButton>
+
+                <div class="flex flex-col space-x-2">
                     <span class="font-semibold">Add translator info</span>
                     Add translator info at the beginning of subtitles.
                 </div>
@@ -256,6 +269,16 @@ const stripTrailingIdeographicFullStop = computed({
         'false',
     set: (newValue: string): void => {
         settingsStore.updateSetting(SETTINGS.STRIP_TRAILING_IDEOGRAPHIC_FULL_STOP, newValue, true)
+        saveNotification.value?.show()
+    }
+})
+
+const replaceInlineIdeographicFullStop = computed({
+    get: (): string =>
+        (settingsStore.getSetting(SETTINGS.REPLACE_INLINE_IDEOGRAPHIC_FULL_STOP) as string) ??
+        'false',
+    set: (newValue: string): void => {
+        settingsStore.updateSetting(SETTINGS.REPLACE_INLINE_IDEOGRAPHIC_FULL_STOP, newValue, true)
         saveNotification.value?.show()
     }
 })

@@ -60,6 +60,7 @@ export const SETTINGS = {
     FIX_OVERLAPPING_SUBTITLES: 'fix_overlapping_subtitles',
     STRIP_SUBTITLE_FORMATTING: 'strip_subtitle_formatting',
     STRIP_TRAILING_IDEOGRAPHIC_FULL_STOP: 'strip_trailing_ideographic_full_stop',
+    REPLACE_INLINE_IDEOGRAPHIC_FULL_STOP: 'replace_inline_ideographic_full_stop',
     PRESERVE_LINE_BREAKS: 'preserve_line_breaks',
     ADD_TRANSLATOR_INFO: 'add_translator_info',
     EXPORT_BILINGUAL_ASS: 'export_bilingual_ass',
@@ -153,6 +154,7 @@ export interface ISettings {
     fix_overlapping_subtitles: string
     strip_subtitle_formatting: string
     strip_trailing_ideographic_full_stop: string
+    replace_inline_ideographic_full_stop: string
     preserve_line_breaks: string
     add_translator_info: string
     export_bilingual_ass: string

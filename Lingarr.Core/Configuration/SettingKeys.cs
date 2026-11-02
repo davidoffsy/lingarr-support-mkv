@@ -148,6 +148,7 @@ public static class SettingKeys
         public const string FixOverlappingSubtitles = "fix_overlapping_subtitles";
         public const string StripSubtitleFormatting = "strip_subtitle_formatting";
         public const string StripTrailingIdeographicFullStop = "strip_trailing_ideographic_full_stop";
+        public const string ReplaceInlineIdeographicFullStop = "replace_inline_ideographic_full_stop";
         public const string PreserveLineBreaks = "preserve_line_breaks";
         public const string AddTranslatorInfo = "add_translator_info";
         public const string ExportBilingualAss = "export_bilingual_ass";

@@ -44,6 +44,8 @@ public class MigrationTests
             Assert.Equal("false", await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
             command.CommandText = "SELECT value FROM settings WHERE key = 'strip_trailing_ideographic_full_stop'";
             Assert.Equal("false", await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+            command.CommandText = "SELECT value FROM settings WHERE key = 'replace_inline_ideographic_full_stop'";
+            Assert.Equal("false", await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
         }
         finally
         {
