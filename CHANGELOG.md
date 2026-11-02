@@ -4,6 +4,31 @@ Release notes for this community fork of [Lingarr](https://github.com/lingarr-tr
 
 Fork versioning is independent of upstream and starts at **0.1.0**, based on upstream [Lingarr 1.4.0](https://github.com/lingarr-translate/lingarr/releases/tag/1.4.0).
 
+## 0.2.2 – 2026-11-02
+
+5 commits since 0.2.1. This release translates Plex-only titles from five-star ratings, recovers numbered-list batch replies without a retry, waits for the MKV before Arr auto-translation, and adds an optional inline full-width period cleanup.
+
+### Highlights
+
+- **Plex-only titles.** Rating a title five stars in Plex now translates it even when it is not in Radarr or Sonarr, using the mapped file path and without inserting media rows. Library hits keep Arr paths. Season ratings expand into per-episode jobs on the translation queue. The old Hangfire `Execute(MediaType, entityId, ratingKey)` overload remains so in-flight jobs still deserialize.
+- **Numbered-list batch recovery.** Models that ignore `response_format` and answer `1. translated line` are parsed as a batch instead of retried. Leading markdown fences are stripped, and the local AI generate API uses the same parser.
+- **Replace inline full-width period.** New setting turns a single mid-cue `。` into a space when writing a subtitle file (`你好。我回来了` → `你好 我回来了`). Off by default. Consecutive periods, quoted dialogue, `？`/`！`, and a trailing period are unchanged; combine with **Strip trailing full-width period** to drop the final `。` as well.
+
+### Improvements
+
+- Arr webhook translation no longer treats a missing MKV as already done: if embedded scan cannot see the file or `ffprobe` fails, the media hash is not persisted, and Sonarr/Radarr translation is scheduled 30s after sync with 2- and 10-minute retries.
+
+### Docker
+
+Multi-arch images (`linux/amd64`, `linux/arm64`):
+
+```text
+ghcr.io/davidoffsy/lingarr-support-mkv:0.2.2
+ghcr.io/davidoffsy/lingarr-support-mkv:latest
+```
+
+Development builds from `main` stay on the `main` tag and report `0.0.0-dev`.
+
 ## 0.2.1 – 2026-10-22
 
 11 commits since 0.2.0. This release adds optional bilingual ASS sidecars, skips translation when the target subtitle already exists, and makes Custom/OpenCode batch translation more resilient.
